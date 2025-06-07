@@ -58,7 +58,7 @@ def train(hyper_params, data):
 def main(hyper_params, gpu_id = None):
     if gpu_id is not None: os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
 
-    from jax import config
+    from jax.config import config
     if 'float64' in hyper_params and hyper_params['float64'] == True: config.update('jax_enable_x64', True)
 
     from data import Dataset

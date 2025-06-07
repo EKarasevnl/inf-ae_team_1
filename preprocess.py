@@ -7,23 +7,13 @@ def prep_movielens(ratings_file_path):
     f = open(ratings_file_path, "r")
     users, items, ratings = [], [], []
 
-    # f.readline() # Skip the header
-    idx = 1
     line = f.readline()
-
     while line:
-        try:
-            u, i, r, _ = line.strip().split(",")
-        except:
-            print(line)
-            print(f"Line number: {idx}")
-            assert False
-
+        u, i, r, _ = line.strip().split("::")
         users.append(int(u))
         items.append(int(i))
         ratings.append(float(r))
         line = f.readline()
-        idx += 1
 
     min_user = min(users)
     num_users = len(set(users))
@@ -99,7 +89,6 @@ if __name__ == "__main__":
     print("\n\n!!!!!!!! STARTED PROCESSING {} !!!!!!!!".format(dataset))
 
     if dataset in [ 'ml-1m' ]: total_data = prep_movielens(BASE_PATH + "/ml-1m/ratings.dat")
-    if dataset in [ 'ml-20m' ]: total_data = prep_movielens(BASE_PATH + "/ml-20m/ratings.csv")
 
     total_data.save_data(BASE_PATH + "{}/".format(dataset))
     total_data.train_test_split()
