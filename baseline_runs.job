@@ -2,13 +2,12 @@
 
 #SBATCH --partition=gpu_a100
 #SBATCH --gpus=1
-#SBATCH --job-name=run_batched
-#SBATCH --mem=300G
-#SBATCH --time=04:00:00
-#SBATCH --output=./slurm_out/run_batched_%j.out
+#SBATCH --job-name=base
+#SBATCH --time=00:59:00
+#SBATCH --output=./slurm_out/base_%j.out
 
 #exit if an error occurs
-# set -e <-- Idk wtf it is
+# set -e
 
 module purge
 module load 2024
@@ -16,7 +15,9 @@ module load Miniconda3/24.7.1-0
 module load CUDA/12.6.0
 
 source activate inf-ae
+# pip install recbole
+# pip install numpy==1.26.4
+# pip install torch
 
 
-
-CUDA_VISIBLE_DEVICES=0 python main.py
+python baseline.py

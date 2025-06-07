@@ -106,7 +106,7 @@ def evaluate(
 
     user_recommendations = {}
 
-    bsz = 20_000  # These many users
+    bsz = 140_000  # These many users
     print(f"[EVALUATE] Processing users in batches of {bsz}")
 
     for i in range(0, hyper_params["num_users"], bsz):
@@ -136,15 +136,15 @@ def evaluate(
         )
         print(f"[EVALUATE] Batch evaluation complete")
 
-        if USE_GINI:
-            # Accumulate item exposures for GINI calculation
-            for k in topk:
-                if k not in user_recommendations:
-                    user_recommendations[k] = []
-                user_recommendations[k] += user_recommendations_batch[k]
-                print(
-                    f"[EVALUATE] Accumulated {len(user_recommendations_batch[k])} recommendations for k={k}"
-                )
+        # if USE_GINI:
+        #     # Accumulate item exposures for GINI calculation
+        #     for k in topk:
+        #         if k not in user_recommendations:
+        #             user_recommendations[k] = []
+        #         user_recommendations[k] += user_recommendations_batch[k]
+        #         print(
+        #             f"[EVALUATE] Accumulated {len(user_recommendations_batch[k])} recommendations for k={k}"
+        #         )
 
         preds += temp_preds
         y_binary += temp_y
@@ -171,16 +171,16 @@ def evaluate(
             )
             print(f"[EVALUATE] {kind}@{k}: {metrics['{}@{}'.format(kind, k)]}")
 
-    if USE_GINI:
-        print("[EVALUATE] Computing GINI coefficients")
-        for k in topk:
-            print(
-                f"[EVALUATE] Computing GINI@{k} with {len(user_recommendations[k])} recommendations"
-            )
-            metrics["GINI@{}".format(k)] = GiniCoefficient().calculate_list_gini(
-                user_recommendations[k], key="category"
-            )
-            print(f"[EVALUATE] GINI@{k}: {metrics['GINI@{}'.format(k)]}")
+    # if USE_GINI:
+    #     print("[EVALUATE] Computing GINI coefficients")
+    #     for k in topk:
+    #         print(
+    #             f"[EVALUATE] Computing GINI@{k} with {len(user_recommendations[k])} recommendations"
+    #         )
+    #         metrics["GINI@{}".format(k)] = GiniCoefficient().calculate_list_gini(
+    #             user_recommendations[k], key="category"
+    #         )
+    #         print(f"[EVALUATE] GINI@{k}: {metrics['GINI@{}'.format(k)]}")
 
     metrics["num_users"] = int(train_x.shape[0])
     metrics["num_interactions"] = int(jnp.count_nonzero(train_x.astype(np.int8)))
@@ -247,15 +247,15 @@ def evaluate_batch(
         hr_sum, ndcg_sum, psp_sum = 0, 0, 0
 
         for b in range(len(logits)):
-            if USE_GINI:
-                # Update item exposures for this batch at this k
-                for item_idx in indices[b][:k]:
-                    user_recommendations[k].append(
-                        {
-                            "id": item_idx + 1,
-                            "category": data.data["item_map_to_category"][item_idx + 1],
-                        }
-                    )
+            # if USE_GINI:
+            #     # Update item exposures for this batch at this k
+            #     for item_idx in indices[b][:k]:
+            #         user_recommendations[k].append(
+            #             {
+            #                 "id": item_idx + 1,
+            #                 "category": data.data["item_map_to_category"][item_idx + 1],
+            #             }
+            #         )
 
             num_pos = float(len(test_positive_set[b]))
             if num_pos == 0:
@@ -296,10 +296,10 @@ def evaluate_batch(
         print(
             f"[EVAL_BATCH] k={k} metrics - Average HR: {hr_sum/len(logits):.4f}, Average NDCG: {ndcg_sum/len(logits):.4f}, Average PSP: {psp_sum/len(logits):.4f}"
         )
-        if USE_GINI:
-            print(
-                f"[EVAL_BATCH] Collected {len(user_recommendations[k])} recommendations for k={k}"
-            )
+        # if USE_GINI:
+        #     print(
+        #         f"[EVAL_BATCH] Collected {len(user_recommendations[k])} recommendations for k={k}"
+        #     )
 
     print(
         f"[EVAL_BATCH] Batch evaluation complete, returning {len(temp_preds)} predictions"
