@@ -81,6 +81,19 @@ def main(hyper_params, gpu_id=None):
     if gpu_id is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
 
+    # ==============================================================================
+    #                 JAX INITIALIZATION
+    # ==============================================================================
+    # Import JAX here and force it to initialize the backend immediately.
+    # This must be done *after* setting CUDA_VISIBLE_DEVICES and *before*
+    # the data loading starts to prevent the deadlock.
+    import jax
+    print("--- Initializing JAX to prevent deadlock ---")
+    print(f"JAX backend: {jax.default_backend()}")
+    print(f"JAX devices: {jax.devices()}")
+    print("------------------------------------------")
+    # ==============================================================================
+
     from jax import config
 
     if "float64" in hyper_params and hyper_params["float64"] == True:
