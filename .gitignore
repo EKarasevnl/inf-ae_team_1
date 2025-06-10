@@ -2,6 +2,7 @@ results/
 slurm_out/
 log_tensorboard/
 saved/
+data/
 
 # dont add RecBole dataset
 *.item
