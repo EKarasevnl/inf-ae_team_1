@@ -17,19 +17,33 @@ def setup(rank=0, world_size=1):
 def cleanup():
     dist.destroy_process_group()
 
-setup()
+# setup()
 
-# Define configuration dictionary with user_inter_num_interval
-config_dict = {
-    'user_inter_num_interval': "[1,1000]",  # Ensures users haven't interacted with ALL items
-    'load_col': {'inter': ['user_id', 'item_id', 'rating']},  # Explicitly specify columns
-    'neg_sampling': {'uniform': 1}  # Ensure negative sampling is properly configured
+# # Define configuration dictionary with user_inter_num_interval
+# config_dict = {
+#     'user_inter_num_interval': "[1,1000]",  # Ensures users haven't interacted with ALL items
+#     'load_col': {'inter': ['user_id', 'item_id', 'rating']},  # Explicitly specify columns
+#     'neg_sampling': {'uniform': 1}  # Ensure negative sampling is properly configured
+# }
+
+from recbole.quick_start import run_recbole
+
+parameter_dict = {
+    'gpu_id': 0,
+    'epochs': 50,
+    'train_batch_size': 512,
+    'eval_batch_size': 512,
+    'metrics': ['Hit', 'NDCG'],  # only ranking metrics
+    'topk': [10, 100],
+    'valid_metric': 'NDCG@10',
+    'eval_setting': 'TO_LS,full',
+    'seed': 42,
 }
 
-run_recbole(
-    model='Pop', 
-    dataset='douban',
-    config_dict=config_dict
-)
+# parameter_dict = {
+#    'train_neg_sample_args': None,
+# }
 
-cleanup()
+run_recbole(model='NeuMF', dataset='ml-100k', config_dict=parameter_dict)
+
+# cleanup()

@@ -3,34 +3,76 @@ import h5py, sys, os
 
 BASE_PATH = "data/"
 
+# def prep_movielens(ratings_file_path):
+#     f = open(ratings_file_path, "r")
+#     users, items, ratings = [], [], []
+
+#     # f.readline() # Skip the header
+#     idx = 1
+#     line = f.readline()
+
+#     while line:
+#         try:
+#             u, i, r, _ = line.strip().split("::")
+#         except:
+#             print(line)
+#             print(f"Line number: {idx}")
+
+#         users.append(int(u))
+#         items.append(int(i))
+#         ratings.append(float(r))
+#         line = f.readline()
+#         idx += 1
+
+#     min_user = min(users)
+#     num_users = len(set(users))
+#     print(f"min_user - {min_user} | num_users - {num_users} | number of users(+dupli) - {len(users)}")
+
+#     data = [ [] for _ in range(num_users) ]
+#     for i in range(len(users)):
+#         try:
+#             data[users[i] - min_user].append([ items[i], ratings[i] ])
+#         except:
+#             print(f"Faulty idx - {users[i] - min_user}")
+
+#     return rating_data(data)
+
 def prep_movielens(ratings_file_path):
     f = open(ratings_file_path, "r")
     users, items, ratings = [], [], []
+    
+    if "csv" in ratings_file_path:
+        f.readline() # Uncomment if the file has a header
 
-    # f.readline() # Skip the header
     idx = 1
     line = f.readline()
 
     while line:
         try:
-            u, i, r, _ = line.strip().split(",")
+            delimeter = "," if "csv" in ratings_file_path else "::"
+            u, i, r, _ = line.strip().split(delimeter)
+            users.append(int(u))
+            items.append(int(i))
+            ratings.append(float(r))
         except:
-            print(line)
-            print(f"Line number: {idx}")
+            print(f"Error parsing line {idx}: {line.strip()}")
             assert False
 
-        users.append(int(u))
-        items.append(int(i))
-        ratings.append(float(r))
         line = f.readline()
         idx += 1
 
-    min_user = min(users)
-    num_users = len(set(users))
+    unique_users = sorted(set(users))
+    user_to_index = {user_id: idx for idx, user_id in enumerate(unique_users)}
 
-    data = [ [] for _ in range(num_users) ]
+    # print(f"min_user - {min(users)} | num_users - {len(unique_users)} | number of users(+dupli) - {len(users)}")
+
+    data = [[] for _ in range(len(unique_users))]
     for i in range(len(users)):
-        data[users[i] - min_user].append([ items[i], ratings[i] ])
+        try:
+            data[user_to_index[users[i]]].append([items[i], ratings[i]])
+        except Exception as e:
+            print(f"Error at i={i}, user={users[i]}, mapped_idx={user_to_index.get(users[i], 'N/A')} | {e}")
+            assert False
 
     return rating_data(data)
 
@@ -99,6 +141,7 @@ if __name__ == "__main__":
     print("\n\n!!!!!!!! STARTED PROCESSING {} !!!!!!!!".format(dataset))
 
     if dataset in [ 'ml-1m' ]: total_data = prep_movielens(BASE_PATH + "/ml-1m/ratings.dat")
+    if dataset in [ 'ml-10m' ]: total_data = prep_movielens(BASE_PATH + "/ml-10m/ratings.dat")
     if dataset in [ 'ml-20m' ]: total_data = prep_movielens(BASE_PATH + "/ml-20m/ratings.csv")
 
     total_data.save_data(BASE_PATH + "{}/".format(dataset))

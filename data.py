@@ -13,8 +13,11 @@ tqdm.pandas()
 
 class Dataset:
     def __init__(self, hyper_params):
-        self.data = load_raw_dataset(hyper_params["dataset"])
-
+        self.data = load_raw_dataset(
+            hyper_params["dataset"],
+            hyper_params["item_id"],
+            hyper_params["category_id"],
+        )
         self.set_of_active_users = list(set(self.data["train"][:, 0].tolist()))
         self.hyper_params = self.update_hyper_params(hyper_params)
 
@@ -59,6 +62,8 @@ class Dataset:
 
 def load_raw_dataset(
     dataset,
+    item_id,
+    category_id,
     data_path=None,
     index_path=None,
     item_path=None,
@@ -113,7 +118,42 @@ def load_raw_dataset(
 
     data = np.array(new_data, dtype=np.int32)
     index = np.array(new_index, dtype=np.int32)
-    
+    print(f"Remapped data shape: {data.shape}, index shape: {index.shape}")
+
+    print("Loading item data")
+    if item_path is None:
+        item_path = f"data/{dataset}/{dataset}.item"
+        print(f"Using default item_path: {item_path}")
+
+    print(f"Reading item data from {item_path}")
+    # FIX: Handle CSV parsing errors with more robust error handling
+    try:
+        # First attempt with standard settings
+        item_df = pd.read_csv(
+            item_path, delimiter="\t", header=0, engine="python", encoding="latin-1"
+        )
+    except pd.errors.ParserError as e:
+        print(f"Parser error with standard settings: {e}")
+        print("Trying with on_bad_lines='warn' and encoding='utf-8'")
+        item_df = pd.read_csv(
+            item_path,
+            delimiter="\t",
+            header=0,
+            engine="python",
+            encoding="utf-8",
+            on_bad_lines="warn",
+        )
+    print(f"Loaded item data with shape: {item_df.shape}")
+
+    all_genres = [
+        genre
+        for genre_list in item_df[category_id].fillna("[Nan]")
+        for genre in genre_list.strip("[]").split(", ")
+    ]
+    unique_genres_list = list(set(all_genres))
+    item_map_to_category = dict(
+        zip(item_df[item_id].astype(int), item_df[category_id])
+    )
 
     def select(data, index, index_val):
         print(f"Selecting data with index value {index_val}")
@@ -128,8 +168,8 @@ def load_raw_dataset(
         "item_map": item_map,
         "train": select(data, index, 0),
         "val": select(data, index, 1),
-        "test": select(data, index, 2)
-        # "item_map_to_category": item_map_to_category,
+        "test": select(data, index, 2),
+        "item_map_to_category": item_map_to_category,
     }
     print(
         f"Split sizes - Train: {len(ret['train'])}, Val: {len(ret['val'])}, Test: {len(ret['test'])}"
@@ -225,15 +265,16 @@ def load_raw_dataset(
     print("# users:", num_users)
     print("# items:", num_items)
     print("# interactions:", len(ret["train"]))
+    print("# unique genres:", len(unique_genres_list))
 
     return ret
 
 
-# if __name__ == "__main__":
-#     data = Dataset(
-#         {
-#             "dataset": "ml-1m",
-#             "item_id": "item_id:token",
-#             "category_id": "genre:token_seq",
-#         }
-#     )
+if __name__ == "__main__":
+    data = Dataset(
+        {
+            "dataset": "ml-1m",
+            "item_id": "item_id:token",
+            "category_id": "genre:token_seq",
+        }
+    )

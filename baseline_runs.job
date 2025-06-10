@@ -4,7 +4,7 @@
 #SBATCH --gpus=1
 #SBATCH --job-name=base
 #SBATCH --time=00:59:00
-#SBATCH --output=./slurm_out/base_%j.out
+#SBATCH --output=./slurm_out/base_250_%j.out
 
 #exit if an error occurs
 # set -e
@@ -17,7 +17,7 @@ module load CUDA/12.6.0
 source activate inf-ae
 # pip install recbole
 # pip install numpy==1.26.4
-# pip install torch
+pip install torch==2.5.0
 
 
 python baseline.py

@@ -1,4 +1,7 @@
 results/
+slurm_out/
+log_tensorboard/
+saved/
 
 # dont add RecBole dataset
 *.item

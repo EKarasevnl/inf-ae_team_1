@@ -1,10 +1,10 @@
 #!/bin/bash
 
-#SBATCH --partition=gpu_a100
+#SBATCH --partition=gpu_h100
 #SBATCH --gpus=1
 #SBATCH --job-name=run_batched
-#SBATCH --mem=300G
-#SBATCH --time=04:00:00
+#SBATCH --mem=180G
+#SBATCH --time=01:00:00
 #SBATCH --output=./slurm_out/run_batched_%j.out
 
 #exit if an error occurs
@@ -18,5 +18,4 @@ module load CUDA/12.6.0
 source activate inf-ae
 
 
-
-CUDA_VISIBLE_DEVICES=0 python main.py
+python main.py

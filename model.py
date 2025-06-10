@@ -6,36 +6,30 @@ from neural_tangents import stax
 import neural_tangents as nt
 from tqdm import tqdm
 
-# jax.config.update('jax_platform_name', 'cpu')
+# def compute_kernel_in_batches(kernel_fn, X1, X2, batch_size=1024):
+#     """Computes kernel matrix in memory-safe batches."""
+#     n1, n2 = X1.shape[0], X2.shape[0]
+#     rows = []
 
-def compute_kernel_in_batches(kernel_fn, X1, X2, batch_size=10000):
-    """Computes the kernel matrix K(X1, X2) in batches."""
-    n1 = X1.shape[0]
-    n2 = X2.shape[0]
+#     for i in tqdm(range(0, n1, batch_size), desc="Batching over X1"):
+#         X1_batch = X1[i : i + batch_size]
+#         blocks = []
+#         for j in range(0, n2, batch_size):
+#             X2_batch = X2[j : j + batch_size]
+#             block = kernel_fn(X1_batch, X2_batch, get="ntk")
+#             blocks.append(block)
+#         rows.append(jnp.concatenate(blocks, axis=1))
 
-    kernel_rows = []
-    for i in tqdm(range(0, n1, batch_size), desc="n1 loop"):
-        X1_batch = X1[i : i + batch_size]
-        row_blocks = []
-        for j in tqdm(range(0, n2, batch_size), desc="n2 loop"):
-            X2_batch = X2[j : j + batch_size]
-            block = kernel_fn(X1_batch, X2_batch, get='ntk')
-            row_blocks.append(block)
-        row = jnp.concatenate(row_blocks, axis=1)
-        kernel_rows.append(row)
-    full_kernel = jnp.concatenate(kernel_rows, axis=0)
-    return full_kernel
-
+#     return jnp.concatenate(rows, axis=0)
 
 def make_kernelized_rr_forward(hyper_params):
     _, _, kernel_fn = FullyConnectedNetwork(
         depth=hyper_params["depth"], num_classes=hyper_params["num_items"]
     )
     # NOTE: Un-comment this if the dataset size is very big (didn't need it for experiments in the paper)
-    # kernel_fn = nt.batch(kernel_fn, batch_size=1)
+    # kernel_fn = nt.batch(kernel_fn, batch_size=138493)
     kernel_fn = functools.partial(kernel_fn, get="ntk")
 
-    # kernel_fn = functools.partial(compute_kernel_in_batches, kernel_fn)
 
 
     @jax.jit
