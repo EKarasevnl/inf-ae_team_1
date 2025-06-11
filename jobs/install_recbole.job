@@ -14,12 +14,16 @@ module load 2024
 module load Miniconda3/24.7.1-0
 module load CUDA/12.6.0
 
-source activate inf-ae
+conda create -n recbole python=3.9
+
+source activate recbole
 
 cd ~/inf-ae_team_1/
 
 conda install -c aibox recbole
 pip install recbole
+
+cd ~/
 
 git clone https://github.com/RUCAIBox/RecBole.git && cd RecBole
 
