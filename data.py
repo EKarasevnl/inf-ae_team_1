@@ -145,6 +145,14 @@ def load_raw_dataset(
         )
     print(f"Loaded item data with shape: {item_df.shape}")
 
+    item_df = item_df[item_df[category_id].notna()]
+    print(f"Filtered item data to {item_df.shape[0]} rows with non-NaN categories")
+    item_df = item_df[item_df[item_id].notna()]
+    print(f"Filtered item data to {item_df.shape[0]} rows with non-NaN item IDs")
+    # number of unique categories
+    print(f"Category ID column: {category_id}")
+    print(f"Number of unique categories: {item_df[category_id].nunique()}")
+
     all_genres = [
         genre
         for genre_list in item_df[category_id].fillna("[Nan]")

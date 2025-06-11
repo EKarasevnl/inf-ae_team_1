@@ -6,6 +6,7 @@ from numba import jit, float64
 import numpy as np
 
 from hyper_params import hyper_params
+from metrics import compute_mmf
 
 USE_GINI = hyper_params["use_gini"]
 
@@ -181,6 +182,22 @@ def evaluate(
                 user_recommendations[k], key="category"
             )
             print(f"[EVALUATE] GINI@{k}: {metrics['GINI@{}'.format(k)]}")
+    #### MMF Metrics ####
+    item_map_to_category = data.data.get("item_map_to_category")
+    if item_map_to_category:
+        print("[EVALUATE] Computing MMF metrics for categories.")
+        if not user_recommendations:
+            print("[EVALUATE] SKIPPING MMF: Full recommendation lists were not collected.")
+            print("[EVALUATE] HINT: To compute MMF, 'USE_GINI' must be True so that recommendations are collected.")
+        else:
+            mmf_metrics = compute_mmf(
+                user_recommendations=user_recommendations,
+                topk=topk,
+                group_key='category',
+                group_map=item_map_to_category
+            )
+            metrics.update(mmf_metrics)
+    ## End of MMF Metrics ####
 
     metrics["num_users"] = int(train_x.shape[0])
     metrics["num_interactions"] = int(jnp.count_nonzero(train_x.astype(np.int8)))
