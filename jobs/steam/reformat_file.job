@@ -1,0 +1,50 @@
+#!/bin/bash
+
+#SBATCH --partition=gpu_a100
+#SBATCH --gpus=1
+#SBATCH --job-name=steam_reformat
+#SBATCH --time=0:59:00
+#SBATCH --output=./slurm_out/steam/reformat.out
+
+#exit if an error occurs
+set -e
+
+module purge
+module load 2024
+module load Miniconda3/24.7.1-0
+module load CUDA/12.6.0
+
+source activate recbole
+
+cd ~/RecBole/
+
+sed -i '1s/product_id/item_id/' dataset/steam/steam.inter
+
+
+# Change found_funny to label in place
+
+# awk -F'\t' 'BEGIN {OFS="\t"}
+# NR==1 {
+#     for (i=1; i<=NF; i++) {
+#         if ($i == "found_funny:token") {
+#             found_idx = i
+#             $i = "label:token"
+#         }
+#     }
+#     print
+# }
+# NR>1 {
+#     for (i=1; i<=NF; i++) f[i] = $i
+#     if (found_idx in f && f[found_idx] != "") {
+#         f[found_idx] = 1
+#     } else {
+#         f[found_idx] = 0
+#     }
+#     out = f[1]
+#     for (i=2; i<=NF; i++) out = out OFS f[i]
+#     print out
+# }' dataset/steam/steam.inter > dataset/steam/tmp.inter && mv dataset/steam/tmp.inter dataset/steam/steam.inter
+
+
+
+echo "Done"

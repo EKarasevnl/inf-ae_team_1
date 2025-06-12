@@ -18,21 +18,20 @@ source activate recbole
 
 cd ~/RecBole/
 
-sed -i '1s/product_id/item_id/' dataset/steam/steam.inter
+# echo "Running Ranking Metrics"
 
-echo "Running Ranking Metrics"
-
-python run_recbole.py \
-  --model=NeuMF \
-  --config_files=recbole/config/steam.yaml \
-  --metrics=[Recall,MRR,NDCG,Precision,Hit] \
-  --topk=[10,100]
+# python run_recbole.py \
+#   --model=NeuMF \
+#   --config_files=recbole/config/steam.yaml \
+#   --metrics="[\"Recall\", \"MRR\", \"NDCG\", \"Precision\", \"Hit\"]" \
+#   --topk="[10, 100]"
 
 echo "Running Value Metrics"
 
 python run_recbole.py \
   --model=NeuMF \
   --config_files=recbole/config/steam.yaml \
-  --metrics=[AUC]
+  --metrics=AUC \
+  --eval_args="{'mode': {'valid': 'labeled', 'test': 'labeled'}}"
 
 echo "Done"
