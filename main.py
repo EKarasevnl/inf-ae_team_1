@@ -48,6 +48,7 @@ def train(hyper_params, data):
 
     # Return metrics with the best lamda on the test-set
     hyper_params['lamda'] = best_lamda
+    print(f"Best lamda: {best_lamda} with {VAL_METRIC}: {best_metric}")
     test_metrics = evaluate(hyper_params, kernelized_rr_forward, data, item_propensity, sampled_matrix, test_set_eval = True)
     
     log_end_epoch(hyper_params, test_metrics, 0, time.time() - start_time)

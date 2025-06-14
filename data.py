@@ -144,6 +144,15 @@ def load_raw_dataset(
             on_bad_lines="warn",
         )
     print(f"Loaded item data with shape: {item_df.shape}")
+    print(f"Item ID column: {item_id}")
+
+    if category_id not in item_df.columns:
+        print(f"Category ID '{category_id}' not found in item data. Creating dummy categories.")
+        item_df[category_id] = np.random.choice(
+            ["DummyA", "DummyB", "DummyC"], size=item_df.shape[0]
+        )
+    else:
+        print(f"Category ID '{category_id}' found in item data")
 
     item_df = item_df[item_df[category_id].notna()]
     print(f"Filtered item data to {item_df.shape[0]} rows with non-NaN categories")

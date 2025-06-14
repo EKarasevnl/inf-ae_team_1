@@ -8,7 +8,8 @@ import numpy as np
 from hyper_params import hyper_params
 from metrics import compute_mmf
 
-USE_GINI = hyper_params["use_gini"]
+USE_GINI = hyper_params.get("use_gini", False)
+USE_MMF = hyper_params.get("use_mmf", False)
 
 
 class GiniCoefficient:
@@ -63,7 +64,7 @@ def evaluate(
     data,
     item_propensity,
     train_x,
-    topk=[10, 100],
+    topk=[10, 100], #, 1000],
     test_set_eval=False,
 ):
     print(
@@ -162,6 +163,10 @@ def evaluate(
         print(
             "[EVALUATE] Warning: NaN values detected in y_binary or preds, skipping AUC calculation"
         )
+        # count how many NaN values are in y_binary and preds
+        print(
+            f"[EVALUATE] NaN count in y_binary: {np.isnan(y_binary).sum()}, preds: {np.isnan(preds).sum()}"
+        )
 
     for kind in ["HR", "NDCG", "PSP"]:
         for k in topk:
@@ -183,8 +188,8 @@ def evaluate(
             )
             print(f"[EVALUATE] GINI@{k}: {metrics['GINI@{}'.format(k)]}")
     #### MMF Metrics ####
-    item_map_to_category = data.data.get("item_map_to_category")
-    if item_map_to_category:
+    if USE_MMF:
+        item_map_to_category = data.data.get("item_map_to_category")
         print("[EVALUATE] Computing MMF metrics for categories.")
         if not user_recommendations:
             print("[EVALUATE] SKIPPING MMF: Full recommendation lists were not collected.")
@@ -265,7 +270,7 @@ def evaluate_batch(
 
         for b in range(len(logits)):
             
-            if USE_GINI:
+            if USE_GINI or USE_MMF:
                 # Update item exposures for this batch at this k
                 for item_idx in indices[b][:k]:
 
