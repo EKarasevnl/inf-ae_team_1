@@ -6,7 +6,8 @@ from numba import jit, float64
 import numpy as np
 
 from hyper_params import hyper_params
-from metrics import compute_mmf
+from metrics import compute_mmf, _parse_genre_string
+from collections import Counter
 
 USE_GINI = hyper_params.get("use_gini", False)
 USE_MMF = hyper_params.get("use_mmf", False)
@@ -47,10 +48,26 @@ class GiniCoefficient:
         """
         print(f"[GINI] Calculating Gini for {len(articles)} articles using key '{key}'")
         # count frequencies
-        freqs = {}
+        ### OLD ###
+        # freqs = {}
+        # for art in articles:
+        #     val = art.get(key, None) or "UNKNOWN"
+        #     freqs[val] = freqs.get(val, 0) + 1
+        # print(f"[GINI] Found {len(freqs)} unique {key} values")
+        ###########
+
+        ### NEW ###
+        freqs = Counter()
         for art in articles:
-            val = art.get(key, None) or "UNKNOWN"
-            freqs[val] = freqs.get(val, 0) + 1
+            raw_val = art.get(key, None) or "UNKNOWN"
+            # NEW: Use the robust parser to get a list of genres.
+            genres = _parse_genre_string(raw_val)
+            
+            if isinstance(genres, list):
+                freqs.update(genres) # Use Counter's update for efficiency
+            else:
+                freqs.update([genres])
+        ###########
         print(f"[GINI] Found {len(freqs)} unique {key} values")
         return self.gini_coefficient(list(freqs.values()))
 
