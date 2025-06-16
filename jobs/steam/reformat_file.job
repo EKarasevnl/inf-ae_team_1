@@ -20,6 +20,17 @@ cd ~/RecBole/
 
 sed -i '1s/product_id/item_id/' dataset/steam/steam.inter
 
+# cd ~/inf-ae_team_1/
+# python preprocess_base.py ~/RecBole/dataset/steam/steam.inter ~/RecBole/dataset/steam/steam.item
+
+
+# Add label_id column
+awk 'BEGIN{OFS="\t"} NR==1{$0=$0"\tlabel_id:token"} NR>1{$0=$0"\t1"} 1' dataset/steam/steam.inter > dataset/steam/steam_new.inter
+mv dataset/steam/steam_new.inter dataset/steam/steam.inter
+
+# Remove all other columns
+# awk 'BEGIN{OFS="\t"} NR==1{print $1, $4, $6, $11} NR>1{print $1, $4, $6, $11}' dataset/steam/steam.inter > dataset/steam/steam_small.inter
+
 
 # Change found_funny to label in place
 

@@ -1,10 +1,10 @@
 #!/bin/bash
 
-#SBATCH --partition=gpu_a100
+#SBATCH --partition=gpu_h100
 #SBATCH --gpus=1
 #SBATCH --job-name=steam_NeuMF
-#SBATCH --time=0:59:00
-#SBATCH --output=./slurm_out/steam/NeuMF_test1.out
+#SBATCH --time=20:00:00
+#SBATCH --output=./slurm_out/steam/NeuMF.out
 
 #exit if an error occurs
 set -e
@@ -18,20 +18,13 @@ source activate recbole
 
 cd ~/RecBole/
 
-# echo "Running Ranking Metrics"
-
-# python run_recbole.py \
-#   --model=NeuMF \
-#   --config_files=recbole/config/steam.yaml \
-#   --metrics="[\"Recall\", \"MRR\", \"NDCG\", \"Precision\", \"Hit\"]" \
-#   --topk="[10, 100]"
-
-echo "Running Value Metrics"
+echo "Running Ranking Metrics"
 
 python run_recbole.py \
   --model=NeuMF \
+  --dataset=steam \
   --config_files=recbole/config/steam.yaml \
-  --metrics=AUC \
-  --eval_args="{'mode': {'valid': 'labeled', 'test': 'labeled'}}"
+  --metrics="[\"Recall\", \"MRR\", \"NDCG\", \"Precision\", \"Hit\", \"PSP\"]" \
+  --topk="[10, 100]"
 
 echo "Done"

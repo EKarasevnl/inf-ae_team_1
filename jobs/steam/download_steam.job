@@ -4,7 +4,7 @@
 #SBATCH --gpus=1
 #SBATCH --job-name=dl_steam
 #SBATCH --time=1:59:00
-#SBATCH --output=./slurm_out/dl_steam.out
+#SBATCH --output=./slurm_out/steam/dl_steam.out
 
 #exit if an error occurs
 set -e

@@ -2,9 +2,9 @@
 
 #SBATCH --partition=gpu_h100
 #SBATCH --gpus=1
-#SBATCH --job-name=steam_MVAE
-#SBATCH --time=20:00:00
-#SBATCH --output=./slurm_out/steam/MVAE.out
+#SBATCH --job-name=steam_test
+#SBATCH --time=9:00:00
+#SBATCH --output=./slurm_out/steam/test.out
 
 #exit if an error occurs
 set -e
@@ -21,8 +21,7 @@ cd ~/RecBole/
 echo "Running Ranking Metrics"
 
 python run_recbole.py \
-  --model=MultiVAE \
-  --dataset=steam \
+  --model=NeuMF \
   --config_files=recbole/config/steam.yaml \
   --metrics="[\"Recall\", \"MRR\", \"NDCG\", \"Precision\", \"Hit\", \"PSP\"]" \
   --topk="[10, 100]"

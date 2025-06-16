@@ -2,9 +2,9 @@
 
 #SBATCH --partition=gpu_h100
 #SBATCH --gpus=1
-#SBATCH --job-name=steam_MVAE
+#SBATCH --job-name=steam_LightGCN_auc
 #SBATCH --time=20:00:00
-#SBATCH --output=./slurm_out/steam/MVAE.out
+#SBATCH --output=./slurm_out/steam/LightGCN_auc.out
 
 #exit if an error occurs
 set -e
@@ -16,15 +16,18 @@ module load CUDA/12.6.0
 
 source activate recbole
 
+pip install scipy==1.10.1
+
 cd ~/RecBole/
 
-echo "Running Ranking Metrics"
+echo "Running Value Metrics"
 
 python run_recbole.py \
-  --model=MultiVAE \
+  --model=LightGCN \
   --dataset=steam \
   --config_files=recbole/config/steam.yaml \
-  --metrics="[\"Recall\", \"MRR\", \"NDCG\", \"Precision\", \"Hit\", \"PSP\"]" \
-  --topk="[10, 100]"
+  --metrics=AUC \
+  --valid_metric=AUC \
+  --eval_args="{'mode': {'valid': 'uni100', 'test': 'uni100'}}" \
 
 echo "Done"
