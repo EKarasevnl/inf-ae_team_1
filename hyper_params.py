@@ -23,9 +23,9 @@ hyper_params = {
 	'grid_search_lamda': True,
 	'lamda': 1.0, # Only used if grid_search_lamda == False,
 	'use_gini': True,
+	'use_mmf': True,
 	"item_id": "id:token",  # configure it based on the .item file
     "category_id": "developer:token",  # configure it based on the .item file
-
 
 	# Number of users to keep (randomly)
 	'user_support': -1, # -1 implies use all users

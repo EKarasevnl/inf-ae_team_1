@@ -1,11 +1,23 @@
 import numpy as np
 from collections import Counter
 import json
+import pandas as pd
 
-def compute_mmf(user_recommendations, topk, group_key, group_map, group_weights=None):
+def compute_mmf(user_recommendations, topk, group_key, group_map, group_weights=None, csv=False):
     """
     Compute weighted Max-Min Fairness (MMF) with debugging and a detailed summary table.
-    Calculates MMF for each k in topk.
+    Calculates MMF for each k in topk and can generate a CSV report.
+
+    Args:
+        user_recommendations (dict): A dictionary where keys are integers (k) and values are lists of recommended items.
+        topk (list): A list of integers (k) for which to compute the metrics.
+        group_key (str): The name of the group being analyzed (e.g., 'artist', 'genre').
+        group_map (dict): A dictionary mapping item IDs to their group ID.
+        group_weights (dict, optional): Pre-computed weights for each group. If None, weights are calculated from catalog share. Defaults to None.
+        csv (bool, optional): If True, generates a 'mmf_stats.csv' report of the MMF statistics. Defaults to False.
+
+    Returns:
+        dict: A dictionary containing the final MMF score for each k.
     """
     metric_name = f"MMF-{group_key.upper()}"
     print(f"\n=======================================================================")
@@ -30,7 +42,7 @@ def compute_mmf(user_recommendations, topk, group_key, group_map, group_weights=
     group_counts = Counter(group_map.values())
     total_items_in_catalog = sum(group_counts.values())
     print(f"[MMF] Found {total_items_in_catalog} total items across {len(group_counts)} groups from group_map.")
-    
+
     if not group_weights:
         if total_items_in_catalog == 0:
             print("[MMF] CRITICAL: 'group_map' is empty. Cannot calculate weights.")
@@ -42,6 +54,7 @@ def compute_mmf(user_recommendations, topk, group_key, group_map, group_weights=
 
     mmf_metrics = {}
     k_to_process = list(topk)
+    all_k_summary_data = [] # To store data for the final CSV report
 
     # --- Step 2: Loop through each K ---
     for k in k_to_process:
@@ -74,9 +87,9 @@ def compute_mmf(user_recommendations, topk, group_key, group_map, group_weights=
         # --- Create and print detailed summary ---
         print("\n[MMF] Sub-step c: Generating MMF summary...")
 
-        summary_data = []
+        summary_data_for_k = []
         for group in group_weights.keys():
-            summary_data.append({
+            summary_data_for_k.append({
                 "Group": group,
                 "MMF Score": fairness_scores.get(group, 0.0),
                 "Exposure Share": exposure_share.get(group, 0.0),
@@ -85,16 +98,21 @@ def compute_mmf(user_recommendations, topk, group_key, group_map, group_weights=
                 "Catalog Count": group_counts.get(group, 0)
             })
 
-        summary_data.sort(key=lambda x: x['MMF Score'], reverse=True)
+        summary_data_for_k.sort(key=lambda x: x['MMF Score'], reverse=True)
+
+        if csv:
+            for summary_item in summary_data_for_k:
+                summary_item['K'] = k
+                all_k_summary_data.append(summary_item)
 
         # Define table layout with updated header
         header = f"{'Group':<35} | {'MMF Score':<15} | {'Exposure (% / Count)':<28} | {'Catalog (% / Count)':<28}"
-        
+
         # Print the summary table
         print(f"\n--- MMF Summary for {metric_label} ---")
         print(header)
         print("-" * len(header))
-        for item in summary_data:
+        for item in summary_data_for_k:
             # Swapped format to: Percentage% (Count)
             exp_share_str = f"{item['Exposure Share']*100:6.2f}% ({item['Exposure Count']})"
             cat_share_str = f"{item['Catalog Share']*100:6.2f}% ({item['Catalog Count']})"
@@ -104,11 +122,41 @@ def compute_mmf(user_recommendations, topk, group_key, group_map, group_weights=
 
         # --- Report the final MMF score ---
         min_fairness = 0.0
-        if summary_data:
-            min_fairness = summary_data[-1]['MMF Score']
-        
+        if summary_data_for_k:
+            min_fairness = summary_data_for_k[-1]['MMF Score']
+
         mmf_metrics[metric_label] = min_fairness
         print(f"[MMF] -> FINAL RESULT FOR {metric_label}: {min_fairness:.4f}")
+
+    # --- Generate CSV Report ---
+    if csv and all_k_summary_data:
+        print("\n[MMF] STEP 3: Generating CSV report 'mmf_stats.csv'...")
+        try:
+            df = pd.DataFrame(all_k_summary_data)
+            df['Exposure Share'] = df['Exposure Share'] * 100
+            df['Catalog Share'] = df['Catalog Share'] * 100
+            df.rename(columns={
+                'Exposure Share': 'Exposure Share (%)',
+                'Catalog Share': 'Catalog Share (%)'
+            }, inplace=True)
+
+
+            csv_columns = [
+                'K', 'Group', 'MMF Score',
+                'Exposure Share (%)', 'Exposure Count',
+                'Catalog Share (%)', 'Catalog Count'
+            ]
+            df = df[csv_columns]
+            df.sort_values(by=['K', 'MMF Score'], ascending=[True, True], inplace=True)
+
+            df.to_csv("mmf_stats.csv", index=False, float_format='%.4f')
+            print("[MMF] -> SUCCESS: Report 'mmf_stats.csv' created.")
+
+        except Exception as e:
+            print(f"[MMF] -> ERROR: Failed to generate CSV report. Reason: {e}")
+    elif csv:
+        print("\n[MMF] STEP 3: No summary data was generated, skipping CSV report creation.")
+
 
     print(f"\n=======================================================================")
     print(f"[MMF DEBUG] MMF computation process finished.")
