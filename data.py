@@ -17,6 +17,8 @@ class Dataset:
             hyper_params["dataset"],
             hyper_params["item_id"],
             hyper_params["category_id"],
+            categories_to_retain=hyper_params.get("categories_to_retain", None),
+            inter_item_col_name=hyper_params.get("inter_item_col_name", "product_id:token"),
         )
         self.set_of_active_users = list(set(self.data["train"][:, 0].tolist()))
         self.hyper_params = self.update_hyper_params(hyper_params)
@@ -67,6 +69,8 @@ def load_raw_dataset(
     data_path=None,
     index_path=None,
     item_path=None,
+    categories_to_retain=None, # list of categories to retain
+    inter_item_col_name=None, # parameter for the .inter file's item column
 ):
     if data_path is None or index_path is None:
         data_path, index_path = [
@@ -83,52 +87,15 @@ def load_raw_dataset(
     print(f"Loading index from {index_path}")
     index = np.array(np.load(index_path)["data"], dtype=np.int32)
     print(f"Loaded index with shape: {index.shape}")
-
-    def remap(data, index):
-        print("Remapping user and item IDs")
-        ## Counting number of unique users/items before
-        valid_users, valid_items = set(), set()
-
-        print("Identifying valid users and items")
-        for at, (u, i, r) in enumerate(tqdm(data, desc="Scanning for valid entries")):
-            if index[at] != -1:
-                valid_users.add(u)
-                valid_items.add(i)
-
-        print(
-            f"Found {len(valid_users)} valid users and {len(valid_items)} valid items"
-        )
-
-        ## Map creation done!
-        user_map = dict(zip(list(valid_users), list(range(len(valid_users)))))
-        item_map = dict(zip(list(valid_items), list(range(len(valid_items)))))
-        print("User and item mapping created")
-
-        return user_map, item_map
-
-    user_map, item_map = remap(data, index)
-
-    print("Creating new data and index arrays with mapped IDs")
-    new_data, new_index = [], []
-    for at, (u, i, r) in enumerate(tqdm(data, desc="Remapping data")):
-        if index[at] == -1:
-            continue
-        new_data.append([user_map[u], item_map[i], r])
-        new_index.append(index[at])
-
-    data = np.array(new_data, dtype=np.int32)
-    index = np.array(new_index, dtype=np.int32)
-    print(f"Remapped data shape: {data.shape}, index shape: {index.shape}")
-
+    
+    # Load item data first to prepare for filtering
     print("Loading item data")
     if item_path is None:
         item_path = f"data/{dataset}/{dataset}.item"
         print(f"Using default item_path: {item_path}")
 
     print(f"Reading item data from {item_path}")
-    # FIX: Handle CSV parsing errors with more robust error handling
     try:
-        # First attempt with standard settings
         item_df = pd.read_csv(
             item_path, delimiter="\t", header=0, engine="python", encoding="latin-1"
         )
@@ -158,9 +125,107 @@ def load_raw_dataset(
     print(f"Filtered item data to {item_df.shape[0]} rows with non-NaN categories")
     item_df = item_df[item_df[item_id].notna()]
     print(f"Filtered item data to {item_df.shape[0]} rows with non-NaN item IDs")
-    # number of unique categories
+    
+    if categories_to_retain and isinstance(categories_to_retain, list) and category_id in item_df.columns:
+        print(f"\n[FILTERING] Applying filter to retain {len(categories_to_retain)} explicitly defined categories from column '{category_id}'.")
+        
+        categories_to_filter_by = set(categories_to_retain)
+        print(f"[FILTERING] Categories to retain: {list(categories_to_filter_by)}")
+
+        original_rows = len(item_df)
+        item_df = item_df[item_df[category_id].isin(categories_to_filter_by)].copy()
+        print(f"[FILTERING] Item catalog filtered from {original_rows} to {len(item_df)} rows.")
+
+        if item_path:
+            base, ext = os.path.splitext(item_path)
+            filtered_path = f"{base}_filtered{ext}"
+            try:
+                print(f"[FILTERING] Saving filtered item catalog to: {filtered_path}")
+                item_df.to_csv(filtered_path, sep='\t', index=False, encoding='latin-1')
+            except Exception as e:
+                print(f"[FILTERING] Error saving filtered file: {e}")
+        
+        # Filter the .inter file using the configurable column name
+        print("\n[INTERACTION FILE] Filtering the .inter file based on the filtered item catalog.")
+        inter_path = f"data/{dataset}/{dataset}.inter"
+        if not os.path.exists(inter_path):
+            print(f"[INTERACTION FILE] Warning: {inter_path} not found. Skipping .inter file filtering.")
+        # Check if the configurable column name was provided
+        elif not inter_item_col_name:
+            print(f"[INTERACTION FILE] Warning: 'inter_item_col_name' not configured. Skipping .inter file filtering.")
+        else:
+            try:
+                print(f"[INTERACTION FILE] Loading raw interactions from {inter_path}")
+                inter_df = pd.read_csv(inter_path, delimiter='\t', header=0, engine='python', encoding='latin-1')
+                
+                retained_item_ids_for_inter = set(item_df[item_id].tolist())
+                
+                original_inter_rows = len(inter_df)
+                # Use the configurable column name for filtering
+                filtered_inter_df = inter_df[inter_df[inter_item_col_name].isin(retained_item_ids_for_inter)].copy()
+                print(f"[INTERACTION FILE] Filtered .inter file from {original_inter_rows} to {len(filtered_inter_df)} rows.")
+                filtered_inter_df[inter_item_col_name] = filtered_inter_df[inter_item_col_name].astype(str)
+
+                filtered_inter_path = f"data/{dataset}/{dataset}_filtered.inter"
+                print(f"[INTERACTION FILE] Saving filtered interactions to {filtered_inter_path}")
+                filtered_inter_df.to_csv(filtered_inter_path, sep='\t', index=False, encoding='latin-1')
+
+            except KeyError:
+                print(f"[INTERACTION FILE] An error occurred: Column '{inter_item_col_name}' not found in {inter_path}.")
+            except Exception as e:
+                print(f"[INTERACTION FILE] An error occurred during .inter file processing: {e}")
+        
+        print("[FILTERING] Item catalog and interaction file filtering complete.\n")
+
+    retained_item_ids = set(item_df[item_id].astype(int).tolist())
+    if len(retained_item_ids) < item_df[item_id].nunique():
+        print(f"[HDF5 FILTER] Using the {len(retained_item_ids)} items from the filtered catalog to filter HDF5 interactions.")
+        original_interaction_count = data.shape[0]
+        
+        interaction_mask = np.isin(data[:, 1], list(retained_item_ids))
+        
+        data = data[interaction_mask]
+        index = index[interaction_mask]
+        
+        print(f"[HDF5 FILTER] HDF5 interaction data filtered from {original_interaction_count} to {data.shape[0]} records.")
+
+    def remap(data, index):
+        print("Remapping user and item IDs based on filtered interactions")
+        valid_users, valid_items = set(), set()
+
+        print("Identifying valid users and items from the filtered set")
+        for at, (u, i, r) in enumerate(tqdm(data, desc="Scanning for valid entries")):
+            if index[at] != -1:
+                valid_users.add(u)
+                valid_items.add(i)
+
+        print(
+            f"Found {len(valid_users)} valid users and {len(valid_items)} valid items post-filtering."
+        )
+
+        user_map = dict(zip(list(valid_users), list(range(len(valid_users)))))
+        item_map = dict(zip(list(valid_items), list(range(len(valid_items)))))
+        print("User and item mapping created")
+
+        return user_map, item_map
+
+    user_map, item_map = remap(data, index)
+
+    print("Creating new data and index arrays with mapped IDs")
+    new_data, new_index = [], []
+    for at, (u, i, r) in enumerate(tqdm(data, desc="Remapping data")):
+        if index[at] == -1:
+            continue
+        if u in user_map and i in item_map:
+            new_data.append([user_map[u], item_map[i], r])
+            new_index.append(index[at])
+
+    data = np.array(new_data, dtype=np.int32)
+    index = np.array(new_index, dtype=np.int32)
+    print(f"Remapped data shape: {data.shape}, index shape: {index.shape}")
+
     print(f"Category ID column: {category_id}")
-    print(f"Number of unique categories: {item_df[category_id].nunique()}")
+    print(f"Number of unique categories in filtered catalog: {item_df[category_id].nunique()}")
 
     all_genres = [
         genre
@@ -192,9 +257,9 @@ def load_raw_dataset(
         f"Split sizes - Train: {len(ret['train'])}, Val: {len(ret['val'])}, Test: {len(ret['test'])}"
     )
 
-    num_users = int(max(data[:, 0]) + 1)
+    num_users = len(user_map)
     num_items = len(item_map)
-    print(f"Dataset has {num_users} users and {num_items} items")
+    print(f"Dataset has {num_users} users and {num_items} items after filtering.")
 
     print("Cleaning up memory")
     del data, index
@@ -204,7 +269,7 @@ def load_raw_dataset(
         print(f"Creating user history from array with shape {arr.shape}")
         ret = [set() for _ in range(num_users)]
         for u, i, r in tqdm(arr, desc="Building user history"):
-            if i >= num_items:
+            if u >= num_users or i >= num_items:
                 continue
             ret[int(u)].add(int(i))
 
@@ -288,10 +353,26 @@ def load_raw_dataset(
 
 
 if __name__ == "__main__":
-    data = Dataset(
-        {
-            "dataset": "ml-1m",
-            "item_id": "item_id:token",
-            "category_id": "genre:token_seq",
-        }
-    )
+    hyper_params = {
+        "dataset": "steam", 
+        "item_id": "id:token",                   # Item ID column in the .item file
+        "inter_item_col_name": "product_id:token", # Item ID column in the .inter file
+        "category_id": "developer:token",
+        "categories_to_retain": [
+            "Strategy First",
+            "Malfador Machinations",
+            "Sonalysts",
+            "Introversion Software",
+            "Outerlight Ltd.",
+            "Darklight Games",
+            "RavenSoft / id Software",
+            "id Software",
+            "Ritual Entertainment",
+            "Valve",
+        ]
+    }
+
+    data = Dataset(hyper_params)
+    print("\nDataset object created successfully.")
+    print(f"Number of users in final dataset: {data.hyper_params['num_users']}")
+    print(f"Number of items in final dataset: {data.hyper_params['num_items']}")
