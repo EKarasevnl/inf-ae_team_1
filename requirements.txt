@@ -5,3 +5,4 @@ numpy>=1.18.0
 neural_tangents>=0.5.0
 numba
 pandas
+tqdm

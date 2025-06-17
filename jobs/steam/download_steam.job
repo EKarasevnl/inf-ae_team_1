@@ -1,0 +1,37 @@
+#!/bin/bash
+
+#SBATCH --partition=gpu_a100
+#SBATCH --gpus=1
+#SBATCH --job-name=dl_steam
+#SBATCH --time=1:59:00
+#SBATCH --output=./slurm_out/steam/dl_steam.out
+
+#exit if an error occurs
+set -e
+
+module purge
+module load 2024
+module load Miniconda3/24.7.1-0
+module load CUDA/12.6.0
+
+source activate recbole
+
+pip install lightgbm
+pip install xgboost
+
+cd ~/RecDatasets/conversion_tools
+
+wget http://cseweb.ucsd.edu/~wckang/steam_reviews.json.gz
+wget http://cseweb.ucsd.edu/~wckang/steam_games.json.gz
+
+mkdir steam-data
+gunzip -c steam_reviews.json.gz > steam-data/steam_reviews.json
+gunzip -c steam_games.json.gz > steam-data/steam_games.json
+
+rm -rvf steam_reviews.json.gz
+rm -rvf steam_games.json.gz
+
+#  duplicate_removal
+python run.py --dataset steam --input_path steam-data --output_path output_data/steam --duplicate_removal --convert_inter
+
+python run.py --dataset steam --input_path steam-data --output_path output_data/steam --convert_item

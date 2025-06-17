@@ -1,0 +1,33 @@
+#!/bin/bash
+
+#SBATCH --partition=gpu_a100
+#SBATCH --gpus=1
+#SBATCH --job-name=install_env
+#SBATCH --time=06:00:00
+#SBATCH --output=./slurm_out/install_env.out
+
+#exit if an error occurs
+set -e
+
+module purge
+module load 2024
+module load Miniconda3/24.7.1-0
+module load CUDA/12.6.0
+
+conda info --envs | grep -q "^inf-ae" && conda remove -n inf-ae --yes --all
+
+# Create a clean environment
+conda create -n inf-ae python=3.9
+
+source activate inf-ae
+
+# Install JAX with CUDA support from conda-forge
+conda install -c conda-forge "jaxlib=*=*cuda*" jax numpy=1.24 scipy
+
+# Install other basic dependencies
+conda install -c conda-forge matplotlib pandas
+
+cd ~/inf-ae_team_1/
+
+# Install project-specific requirements
+pip install -r requirements.txt
