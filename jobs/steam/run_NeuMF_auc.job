@@ -16,19 +16,9 @@ module load CUDA/12.6.0
 
 source activate recbole
 
-cd ~/RecBole/
-
+cd ~/inf-ae_team_1/RecBole/
 
 echo "Running Value Metrics"
-
-# If run with mod inter
-# python run_recbole.py \
-#   --model=NeuMF \
-#   --dataset=steam \
-#   --config_files=recbole/config/steam.yaml \
-#   --metrics=AUC \
-#   --valid_metric=AUC \
-#   --eval_args="{'mode': {'valid': 'labeled', 'test': 'labeled'}}" \
 
 python run_recbole.py \
   --model=NeuMF \

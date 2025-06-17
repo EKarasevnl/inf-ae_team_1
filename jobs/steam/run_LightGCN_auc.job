@@ -18,7 +18,7 @@ source activate recbole
 
 pip install scipy==1.10.1
 
-cd ~/RecBole/
+cd ~/inf-ae_team_1/RecBole/
 
 echo "Running Value Metrics"
 

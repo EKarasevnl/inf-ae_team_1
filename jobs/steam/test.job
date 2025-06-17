@@ -16,7 +16,7 @@ module load CUDA/12.6.0
 
 source activate recbole
 
-cd ~/RecBole/
+cd ~/inf-ae_team_1/RecBole/
 
 echo "Running Ranking Metrics"
 
