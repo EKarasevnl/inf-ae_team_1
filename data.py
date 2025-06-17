@@ -164,7 +164,7 @@ def load_raw_dataset(
                 # Use the configurable column name for filtering
                 filtered_inter_df = inter_df[inter_df[inter_item_col_name].isin(retained_item_ids_for_inter)].copy()
                 print(f"[INTERACTION FILE] Filtered .inter file from {original_inter_rows} to {len(filtered_inter_df)} rows.")
-                filtered_inter_df[inter_item_col_name] = filtered_inter_df[inter_item_col_name].astype(str)
+                filtered_inter_df[inter_item_col_name] = filtered_inter_df[inter_item_col_name].astype('Int64')
 
                 filtered_inter_path = f"data/{dataset}/{dataset}_filtered.inter"
                 print(f"[INTERACTION FILE] Saving filtered interactions to {filtered_inter_path}")
