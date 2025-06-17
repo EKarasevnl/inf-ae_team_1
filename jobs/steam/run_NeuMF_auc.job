@@ -4,7 +4,7 @@
 #SBATCH --gpus=1
 #SBATCH --job-name=steam_NeuMF_auc
 #SBATCH --time=20:00:00
-#SBATCH --output=./slurm_out/steam/NeuMF_auc.out
+#SBATCH --output=./slurm_out/steam1/NeuMF_auc.out
 
 #exit if an error occurs
 set -e
@@ -36,6 +36,8 @@ python run_recbole.py \
   --config_files=recbole/config/steam.yaml \
   --metrics=AUC \
   --valid_metric=AUC \
+  --epochs=20 \
+  --stopping_step=5 \
   --eval_args="{'mode': {'valid': 'uni100', 'test': 'uni100'}}" \
 
 echo "Done"

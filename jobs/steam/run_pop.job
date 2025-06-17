@@ -4,7 +4,7 @@
 #SBATCH --gpus=1
 #SBATCH --job-name=steam_POP
 #SBATCH --time=20:00:00
-#SBATCH --output=./slurm_out/steam/POP.out
+#SBATCH --output=./slurm_out/steam1/POP.out
 
 #exit if an error occurs
 set -e
