@@ -197,6 +197,14 @@ class Collector(object):
                 "data.label", interaction[self.label_field].to(self.device)
             )
 
+        if self.register.need("rec.label"):
+            num_users = scores_tensor.size(0)
+            true_pos = [[] for _ in range(num_users)]
+            for u, i in zip(positive_u.tolist(), positive_i.tolist()):
+                true_pos[u].append(i)
+            self.data_struct.set("rec.label", true_pos)
+
+
     def model_collect(self, model: torch.nn.Module):
         """Collect the evaluation resource from model.
         Args:
@@ -224,7 +232,10 @@ class Collector(object):
         And reset some of outdated resource.
         """
         for key in self.data_struct._data_dict:
-            self.data_struct._data_dict[key] = self.data_struct._data_dict[key].cpu()
+            value = self.data_struct._data_dict[key]
+            if isinstance(value, torch.Tensor):
+                self.data_struct._data_dict[key] = value.cpu()
+
         returned_struct = copy.deepcopy(self.data_struct)
         for key in ["rec.topk", "rec.meanrank", "rec.score", "rec.items", "data.label"]:
             if key in self.data_struct:
