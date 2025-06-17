@@ -164,14 +164,29 @@ def load_raw_dataset(
                 # Use the configurable column name for filtering
                 filtered_inter_df = inter_df[inter_df[inter_item_col_name].isin(retained_item_ids_for_inter)].copy()
                 print(f"[INTERACTION FILE] Filtered .inter file from {original_inter_rows} to {len(filtered_inter_df)} rows.")
+                
+                # --- Remap user_id to be contiguous ---
+                user_col_name = 'user_id:token'
+                print(f"[INTERACTION FILE] Remapping '{user_col_name}' to be contiguous.")
+                
+                # Create a mapping from old user IDs to new 0-indexed IDs
+                unique_users = filtered_inter_df[user_col_name].unique()
+                user_remapping_dict = {old_id: new_id for new_id, old_id in enumerate(unique_users)}
+                
+                # Apply the mapping
+                filtered_inter_df[user_col_name] = filtered_inter_df[user_col_name].map(user_remapping_dict)
+                print(f"[INTERACTION FILE] Remapped {len(unique_users)} unique users.")
+                # --- END NEW LOGIC ---
+
+                # Format item ID column and save
                 filtered_inter_df[inter_item_col_name] = filtered_inter_df[inter_item_col_name].astype('Int64')
 
                 filtered_inter_path = f"data/{dataset}/{dataset}_filtered.inter"
                 print(f"[INTERACTION FILE] Saving filtered interactions to {filtered_inter_path}")
                 filtered_inter_df.to_csv(filtered_inter_path, sep='\t', index=False, encoding='latin-1')
 
-            except KeyError:
-                print(f"[INTERACTION FILE] An error occurred: Column '{inter_item_col_name}' not found in {inter_path}.")
+            except KeyError as e:
+                print(f"[INTERACTION FILE] An error occurred: Column '{e}' not found in {inter_path}.")
             except Exception as e:
                 print(f"[INTERACTION FILE] An error occurred during .inter file processing: {e}")
         
