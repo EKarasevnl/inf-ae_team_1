@@ -5,10 +5,4 @@ TIME_FIELD: timestamp
 field_separator: "\t"
 load_col:
   inter: [user_id, item_id, timestamp, label_id]
-
-# user_id_field: user_id
-# item_id_field: item_id
-# field_separator: "\t"
-# load_col:
-#   inter: [user_id, item_id, timestamp]
-# dataset: steam
+  
