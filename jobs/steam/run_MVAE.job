@@ -4,7 +4,7 @@
 #SBATCH --gpus=1
 #SBATCH --job-name=steam_MVAE
 #SBATCH --time=20:00:00
-#SBATCH --output=./slurm_out/steam1/MVAE.out
+#SBATCH --output=./slurm_out/steam/MVAE.out
 
 #exit if an error occurs
 set -e
