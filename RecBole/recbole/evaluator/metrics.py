@@ -382,6 +382,10 @@ class PSP(TopkMetric):
         num_users, max_k = pos_index.shape
         denom = np.zeros((num_users, max_k))
 
+        print(f"[DEBUG] Number of users: {num_users}")
+        print(f"[DEBUG] Number of users: {len(dataobject['rec.label'])}")
+        print(f"[DEBUG] Number of true items: {len(dataobject['rec.label'][0])}")
+
         for u in range(num_users):
             true_items = dataobject["rec.label"][u]  # list of true item IDs for user u
             if len(true_items) > 0:

@@ -202,7 +202,12 @@ class Collector(object):
             true_pos = [[] for _ in range(num_users)]
             for u, i in zip(positive_u.tolist(), positive_i.tolist()):
                 true_pos[u].append(i)
-            self.data_struct.set("rec.label", true_pos)
+            if "rec.label" not in self.data_struct:
+                self.data_struct.set("rec.label", true_pos)
+            else:
+                # Append new batch properly
+                existing = self.data_struct.get("rec.label")
+                self.data_struct.set("rec.label", existing + true_pos)
 
 
     def model_collect(self, model: torch.nn.Module):
@@ -237,7 +242,7 @@ class Collector(object):
                 self.data_struct._data_dict[key] = value.cpu()
 
         returned_struct = copy.deepcopy(self.data_struct)
-        for key in ["rec.topk", "rec.meanrank", "rec.score", "rec.items", "data.label"]:
+        for key in ["rec.topk", "rec.meanrank", "rec.score", "rec.items", "data.label", "rec.label"]:
             if key in self.data_struct:
                 del self.data_struct[key]
         return returned_struct
