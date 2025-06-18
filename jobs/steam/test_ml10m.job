@@ -1,10 +1,10 @@
 #!/bin/bash
 
-#SBATCH --partition=gpu_h100
+#SBATCH --partition=gpu_a100
 #SBATCH --gpus=1
-#SBATCH --job-name=steam_test
-#SBATCH --time=9:00:00
-#SBATCH --output=./slurm_out/steam/test_steam_small_%A.out
+#SBATCH --job-name=ml10m_test
+#SBATCH --time=04:00:00
+#SBATCH --output=./slurm_out/steam/test_ml10m_%A.out
 
 #exit if an error occurs
 set -e
@@ -22,9 +22,9 @@ echo "Running Ranking Metrics"
 
 python run_recbole.py \
   --model=NeuMF \
-  --config_files=recbole/config/steam.yaml \
+  --config_files=recbole/config/ml-10m.yaml \
   --metrics="[\"Recall\", \"MRR\", \"NDCG\", \"Precision\", \"Hit\", \"MMF\", \"GiniIndex\"]" \
-  --topk="[10, 62]" \
-  --dataset=steam \
+  --topk="[10, 100]" \
+  --dataset=ml-10m \
 
 echo "Done"
