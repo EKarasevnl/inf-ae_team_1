@@ -2,7 +2,7 @@
 
 #SBATCH --partition=gpu_h100
 #SBATCH --gpus=1
-#SBATCH --job-name=ml-1m_POP_auc
+#SBATCH --job-name=POP_auc_ml-1m
 #SBATCH --time=20:00:00
 #SBATCH --output=./slurm_out/ml-1m/POP_auc.out
 

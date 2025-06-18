@@ -2,7 +2,7 @@
 
 #SBATCH --partition=gpu_h100
 #SBATCH --gpus=1
-#SBATCH --job-name=ml-1m_NeuMF_auc
+#SBATCH --job-name=NeuMF_auc_ml-1m
 #SBATCH --time=20:00:00
 #SBATCH --output=./slurm_out/ml-1m/NeuMF_auc.out
 
@@ -26,8 +26,8 @@ python run_recbole.py \
   --config_files=recbole/config/ml-1m.yaml \
   --metrics=AUC \
   --valid_metric=AUC \
+  --eval_args="{'mode': {'valid': 'uni100', 'test': 'uni100'}}" \
   --epochs=20 \
   --stopping_step=5 \
-  --eval_args="{'mode': {'valid': 'uni100', 'test': 'uni100'}}" \
 
 echo "Done"

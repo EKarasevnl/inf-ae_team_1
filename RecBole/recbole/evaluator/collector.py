@@ -197,26 +197,51 @@ class Collector(object):
                 "data.label", interaction[self.label_field].to(self.device)
             )
 
-        if self.register.need("rec.label"):
-            # Get global user ID for each row
-            batch_user_id = interaction[self.config["USER_ID_FIELD"]].tolist()
-            true_pos = {u: [] for u in batch_user_id}
-            for u, i in zip(positive_u.tolist(), positive_i.tolist()):
-                global_u = batch_user_id[u]
-                true_pos[global_u].append(i)
+        # if self.register.need("rec.label"):
+        #     # Get global user ID for each row
+        #     batch_user_id = interaction[self.config["USER_ID_FIELD"]].tolist()
+        #     true_pos = {u: [] for u in batch_user_id}
+        #     for u, i in zip(positive_u.tolist(), positive_i.tolist()):
+        #         global_u = batch_user_id[u]
+        #         true_pos[global_u].append(i)
 
+        #     if "rec.label" not in self.data_struct:
+        #         # One list per total user (known from training)
+        #         num_total_users = self.data_struct.get("data.num_users")
+        #         all_true_pos = [[] for _ in range(num_total_users)]
+        #         for u, items in true_pos.items():
+        #             all_true_pos[u] = items
+        #         self.data_struct.set("rec.label", all_true_pos)
+        #     else:
+        #         existing = self.data_struct.get("rec.label")
+        #         for u, items in true_pos.items():
+        #             existing[u].extend(items)
+        #         self.data_struct.set("rec.label", existing)
+
+          # ------------------------------------------------------------------
+        # Store each user's ground-truth items so metrics like PSP can
+        # compute the per-user denominator (mPSP).  We build one list per
+        # *global* user ID and keep extending it batch-by-batch.
+        # ------------------------------------------------------------------
+        if self.register.need("rec.label"):
+
+            # ❶ Lazily create the master list-of-lists only once
             if "rec.label" not in self.data_struct:
-                # One list per total user (known from training)
                 num_total_users = self.data_struct.get("data.num_users")
-                all_true_pos = [[] for _ in range(num_total_users)]
-                for u, items in true_pos.items():
-                    all_true_pos[u] = items
-                self.data_struct.set("rec.label", all_true_pos)
-            else:
-                existing = self.data_struct.get("rec.label")
-                for u, items in true_pos.items():
-                    existing[u].extend(items)
-                self.data_struct.set("rec.label", existing)
+                self.data_struct.set("rec.label", [[] for _ in range(num_total_users)])
+
+            rec_label = self.data_struct.get("rec.label")
+
+            # ❷ Map local batch rows to global user IDs
+            batch_user_id = interaction[self.config["USER_ID_FIELD"]].tolist()
+
+            # ❸ Append the positive item of *every* user in this batch
+            for local_u, item_id in zip(positive_u.tolist(), positive_i.tolist()):
+                global_u = batch_user_id[local_u]
+                rec_label[global_u].append(int(item_id))     # make sure it's plain int
+
+            # ❹ Put it back (lists are mutable, but stay explicit)
+            self.data_struct.set("rec.label", rec_label)
 
 
     def model_collect(self, model: torch.nn.Module):
