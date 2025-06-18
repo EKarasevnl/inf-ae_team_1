@@ -245,66 +245,95 @@ class PSP(TopkMetric):
     """
 
     metric_type = EvaluatorType.RANKING
-    metric_need = ["rec.topk", "rec.items", "data.count_items", "rec.label"]
+    metric_need = ["rec.topk", "rec.items", "data.count_items", "rec.label", "data.num_users"]
 
     def __init__(self, config):
         super().__init__(config)
 
+    # def calculate_metric(self, dataobject):
+    #     # 1️⃣ Get hit matrix and positive lengths
+    #     pos_index, _ = self.used_info(dataobject)
+
+    #     # 2️⃣ Compute φ(i) from item counts
+    #     counter = dataobject["data.count_items"]
+    #     num_items = max(counter.keys()) + 1
+
+    #     counts = np.zeros(num_items, dtype=np.float32)
+    #     for item_id, count in counter.items():
+    #         counts[item_id] = count
+
+    #     A, B = 0.55, 1.5
+    #     N = np.sum(counts)
+    #     C = (np.log(N) - 1) * (B ** A)
+    #     phi = 1.0 / (1.0 + C * np.exp(-A * np.log(counts + B)))
+    #     inv_phi = 1.0 / phi
+
+    #     # 3️⃣ Recommended items
+    #     rec_items = dataobject["rec.items"].numpy()
+
+    #     # 4️⃣ Numerator: cumulative sum of hits' inv_phi up to K
+    #     rec_inv_phi = inv_phi[rec_items]
+    #     numerator = np.cumsum(pos_index * rec_inv_phi, axis=1)
+
+    #     # 5️⃣ Denominator: FIXED total inv_phi of true items (same for all K!)
+    #     num_users, max_k = pos_index.shape
+    #     denom = np.zeros((num_users, max_k))
+    #     print(f"[DEBUG] Number of users: {num_users}")
+    #     print(f"[DEBUG] Number of users: {len(dataobject['rec.label'])}")
+    #     print(f"[DEBUG] Number of true items: {len(dataobject['rec.label'][0])}")
+
+    #     for u in range(num_users):
+    #         true_items = dataobject["rec.label"][u]
+    #         if len(true_items) > 0:
+    #             total_inv_phi = np.sum(inv_phi[true_items])
+    #             denom[u, :] = total_inv_phi  # same value for all K
+    #         else:
+    #             denom[u, :] = 1.0  # fallback to avoid zero denominator
+
+    #     # 6️⃣ PSP = numerator / denominator
+    #     result = numerator / denom
+
+    #     # 7️⃣ Return in RecBole topk_result format
+    #     return self.topk_result("psp", result)
+
     def calculate_metric(self, dataobject):
-        # 1️⃣ Get hit matrix and positive lengths
-        pos_index, pos_len = self.used_info(dataobject)
+        # 1) hits (pos_index)  ----------------------------------------------------
+        pos_index, _ = self.used_info(dataobject)          # shape: [n_users, max_k]
 
-        # 2️⃣ Compute correct φ(i) from counts
+        # 2) inverse propensities  -------------------------------------------------
         counter = dataobject["data.count_items"]
-        num_items = max(counter.keys()) + 1
-
-        # Count vector
+        num_items = max(counter) + 1
         counts = np.zeros(num_items, dtype=np.float32)
-        for item_id, count in counter.items():
-            counts[item_id] = count
+        for i, c in counter.items():
+            counts[i] = c
 
-        # Compute φ(i)
-        A, B = 0.55, 1.5
-        N = np.sum(counts)
-        C = (np.log(N) - 1) * (B ** A)
-        phi = 1.0 / (1.0 + C * np.exp(-A * np.log(counts + B)))
-        inv_phi = 1.0 / phi  # what the paper uses
+        A, B = 0.55, 1.5                                   # paper defaults
+        N = counts.sum()
+        C = (np.log(N) - 1) * B**A
+        phi     = 1.0 / (1.0 + C * np.exp(-A * np.log(counts + B)))
+        inv_phi = 1.0 / phi                                # what we actually use
 
-        # 3️⃣ Recommended items
-        rec_items = dataobject["rec.items"].numpy()
+        # 3) numerator  -----------------------------------------------------------
+        rec_items     = dataobject["rec.items"].numpy()
+        hits_inv_phi  = pos_index * inv_phi[rec_items]      # weight only the hits
+        numerator     = np.cumsum(hits_inv_phi, axis=1)     # sum_{i≤k} …
+        k_array       = np.arange(1, hits_inv_phi.shape[1] + 1)
+        numerator_avg = numerator / k_array                 # <-- divide by k   ✅
 
-        # 4️⃣ Numerator
-        rec_inv_phi = inv_phi[rec_items]  # shape [num_users, max_k]
-        numerator = np.cumsum(pos_index * rec_inv_phi, axis=1)
+        # 4) denominator (mPSP)  ---------------------------------------------------
+        labels = dataobject["rec.label"]                    # list[List[int]]
+        total_users, max_k = pos_index.shape
+        denom = np.zeros((total_users, max_k), dtype=np.float32)
 
-        # 5️⃣ Denominator per user
-        num_users, max_k = pos_index.shape
-        denom = np.zeros((num_users, max_k))
+        for u in range(total_users):
+            true_items     = labels[u]
+            denom_value    = inv_phi[true_items].sum() if true_items else 1.0
+            denom[u, :]    = denom_value                    # same for every k
 
-        print(f"[DEBUG] Number of users: {num_users}")
-        print(f"[DEBUG] Number of users: {len(dataobject['rec.label'])}")
-        print(f"[DEBUG] Number of true items: {len(dataobject['rec.label'][0])}")
+        # 5) PSP@k per-user and aggregation  --------------------------------------
+        psp_user_k = numerator_avg / denom                  # always ≤ 1
+        return self.topk_result("psp", psp_user_k)
 
-        for u in range(num_users):
-            true_items = dataobject["rec.label"][u]
-            if len(true_items) > 0:
-                true_inv_phi = np.sort(inv_phi[true_items])[::-1]
-                top_props = np.cumsum(
-                    np.pad(true_inv_phi, (0, max(0, max_k - len(true_inv_phi))), constant_values=0)
-                )
-                if len(top_props) < max_k:
-                    top_props = np.concatenate(
-                        [top_props, np.repeat(top_props[-1], max_k - len(top_props))]
-                    )
-                denom[u, :] = top_props[:max_k]
-            else:
-                denom[u, :] = 1.0  # fallback to avoid zero denom
-                print("[DEBUG] Number of users with no true items:", np.sum(denom == 1.0))
-
-        result = numerator / denom
-
-        # 6️⃣ Return in RecBole format
-        return self.topk_result("psp", result)
 
 
 # CTR Metrics

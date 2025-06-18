@@ -198,16 +198,25 @@ class Collector(object):
             )
 
         if self.register.need("rec.label"):
-            num_users = scores_tensor.size(0)
-            true_pos = [[] for _ in range(num_users)]
+            # Get global user ID for each row
+            batch_user_id = interaction[self.config["USER_ID_FIELD"]].tolist()
+            true_pos = {u: [] for u in batch_user_id}
             for u, i in zip(positive_u.tolist(), positive_i.tolist()):
-                true_pos[u].append(i)
+                global_u = batch_user_id[u]
+                true_pos[global_u].append(i)
+
             if "rec.label" not in self.data_struct:
-                self.data_struct.set("rec.label", true_pos)
+                # One list per total user (known from training)
+                num_total_users = self.data_struct.get("data.num_users")
+                all_true_pos = [[] for _ in range(num_total_users)]
+                for u, items in true_pos.items():
+                    all_true_pos[u] = items
+                self.data_struct.set("rec.label", all_true_pos)
             else:
-                # Append new batch properly
                 existing = self.data_struct.get("rec.label")
-                self.data_struct.set("rec.label", existing + true_pos)
+                for u, items in true_pos.items():
+                    existing[u].extend(items)
+                self.data_struct.set("rec.label", existing)
 
 
     def model_collect(self, model: torch.nn.Module):
