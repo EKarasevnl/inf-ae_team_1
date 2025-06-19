@@ -21,7 +21,7 @@ cd /home/scur2760/inf-ae_team_1/RecBole
 echo "Running Ranking Metrics"
 
 python run_recbole.py \
-  --model=NeuMF \
+  --model=EASE \
   --config_files=recbole/config/ml-10m.yaml \
   --metrics="[\"Recall\", \"MRR\", \"NDCG\", \"Precision\", \"Hit\", \"MMF\", \"GiniIndex\"]" \
   --topk="[10, 100]" \

@@ -23,7 +23,7 @@ echo "Running Ranking Metrics"
 python run_recbole.py \
   --model=NeuMF \
   --config_files=recbole/config/ml-1m.yaml \
-  --metrics="[\"Recall\", \"MRR\", \"NDCG\", \"Precision\", \"Hit\", \"MMF\", \"GiniIndex\"]" \
+  --metrics="[\"Recall\", \"MRR\", \"NDCG\", \"Precision\", \"Hit\", \"MMF\", \"MMF_10c\", \"GiniIndex\"]" \
   --topk="[10, 100]" \
   --dataset=ml-1m \
 

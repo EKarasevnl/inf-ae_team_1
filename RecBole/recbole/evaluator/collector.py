@@ -205,7 +205,6 @@ class Collector(object):
             positive_i(Torch.Tensor): the positive item id for each user.
         """
         if self.register.need("rec.items"):
-            print(f"scores_tensor: {scores_tensor.shape}")
             # get topk
             _, topk_idx = torch.topk(
                 scores_tensor, max(self.topk), dim=-1
