@@ -6,8 +6,10 @@ from numba import jit, float64
 import numpy as np
 
 from hyper_params import hyper_params
+from metrics import compute_mmf
 
-USE_GINI = hyper_params["use_gini"]
+USE_GINI = hyper_params.get("use_gini", False)
+USE_MMF = hyper_params.get("use_mmf", False)
 
 
 class GiniCoefficient:
@@ -62,7 +64,7 @@ def evaluate(
     data,
     item_propensity,
     train_x,
-    topk=[10, 100],
+    topk=[10, 100], #, 1000],
     test_set_eval=False,
 ):
     print(
@@ -106,7 +108,7 @@ def evaluate(
 
     user_recommendations = {}
 
-    bsz = 20_000  # These many users
+    bsz = 140_000  # These many users
     print(f"[EVALUATE] Processing users in batches of {bsz}")
 
     for i in range(0, hyper_params["num_users"], bsz):
@@ -161,6 +163,10 @@ def evaluate(
         print(
             "[EVALUATE] Warning: NaN values detected in y_binary or preds, skipping AUC calculation"
         )
+        # count how many NaN values are in y_binary and preds
+        print(
+            f"[EVALUATE] NaN count in y_binary: {np.isnan(y_binary).sum()}, preds: {np.isnan(preds).sum()}"
+        )
 
     for kind in ["HR", "NDCG", "PSP"]:
         for k in topk:
@@ -181,6 +187,22 @@ def evaluate(
                 user_recommendations[k], key="category"
             )
             print(f"[EVALUATE] GINI@{k}: {metrics['GINI@{}'.format(k)]}")
+    #### MMF Metrics ####
+    if USE_MMF:
+        item_map_to_category = data.data.get("item_map_to_category")
+        print("[EVALUATE] Computing MMF metrics for categories.")
+        if not user_recommendations:
+            print("[EVALUATE] SKIPPING MMF: Full recommendation lists were not collected.")
+            print("[EVALUATE] HINT: To compute MMF, 'USE_GINI' must be True so that recommendations are collected.")
+        else:
+            mmf_metrics = compute_mmf(
+                user_recommendations=user_recommendations,
+                topk=topk,
+                group_key='category',
+                group_map=item_map_to_category
+            )
+            metrics.update(mmf_metrics)
+    ## End of MMF Metrics ####
 
     metrics["num_users"] = int(train_x.shape[0])
     metrics["num_interactions"] = int(jnp.count_nonzero(train_x.astype(np.int8)))
@@ -247,15 +269,21 @@ def evaluate_batch(
         hr_sum, ndcg_sum, psp_sum = 0, 0, 0
 
         for b in range(len(logits)):
-            if USE_GINI:
+            
+            if USE_GINI or USE_MMF:
                 # Update item exposures for this batch at this k
                 for item_idx in indices[b][:k]:
-                    user_recommendations[k].append(
-                        {
-                            "id": item_idx + 1,
-                            "category": data.data["item_map_to_category"][item_idx + 1],
-                        }
-                    )
+
+                    try:
+                        
+                        user_recommendations[k].append(
+                            {
+                                "id": item_idx + 1,
+                                "category": data.data["item_map_to_category"][item_idx + 1],
+                            }
+                        )
+                    except:
+                        pass
 
             num_pos = float(len(test_positive_set[b]))
             if num_pos == 0:
@@ -300,7 +328,7 @@ def evaluate_batch(
             print(
                 f"[EVAL_BATCH] Collected {len(user_recommendations[k])} recommendations for k={k}"
             )
-
+        
     print(
         f"[EVAL_BATCH] Batch evaluation complete, returning {len(temp_preds)} predictions"
     )
