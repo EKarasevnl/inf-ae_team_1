@@ -66,6 +66,7 @@ def evaluate(
     train_x,
     topk=[10, 100], #, 1000],
     test_set_eval=False,
+    item_group_weights=None,
 ):
     print(
         f"\n[EVALUATE] Starting evaluation with topk={topk}, test_set_eval={test_set_eval}"
@@ -119,7 +120,12 @@ def evaluate(
 
         print(f"[EVALUATE] Running forward pass for batch {i} to {batch_end-1}")
         temp_preds = kernelized_rr_forward(
-            train_x, eval_context[i:batch_end].todense(), reg=hyper_params["lamda"]
+            train_x,
+            eval_context[i:batch_end].todense(),
+            reg=hyper_params["lamda"],
+            gini_reg=hyper_params.get("gini_reg", 0.0), # GINI regularization
+            mmf_reg=hyper_params.get("mmf_reg", 0.0),   # MMF regularization
+            item_group_weights=item_group_weights       # MMF group weights
         )
         print(
             f"[EVALUATE] Forward pass complete, prediction shape: {np.array(temp_preds).shape}"

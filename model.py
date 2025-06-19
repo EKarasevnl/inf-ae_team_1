@@ -32,10 +32,12 @@ def make_kernelized_rr_forward(hyper_params):
 
 
 
-    @jax.jit
-    def kernelized_rr_forward(X_train, X_predict, reg=0.1):
+    # @jax.jit
+    def kernelized_rr_forward(X_train, X_predict, reg=0.1, gini_reg=0.0, mmf_reg=0.0, item_group_weights=None):
         K_train = kernel_fn(X_train, X_train)
         K_predict = kernel_fn(X_predict, X_train)
+        
+        # standard regularization
         K_reg = (
             K_train
             + jnp.abs(reg)
@@ -43,32 +45,55 @@ def make_kernelized_rr_forward(hyper_params):
             * jnp.eye(K_train.shape[0])
             / K_train.shape[0]
         )
+
+        # gini-based regularization -> NOTE: for now it doesn't change the final results
+        if gini_reg > 0:
+            num_users = K_train.shape[0]
+            J = jnp.ones((num_users, num_users))
+            gini_term = (
+                jnp.abs(gini_reg)
+                * jnp.trace(K_train)
+                * J
+                / K_train.shape[0]
+            )
+            K_reg = K_reg + gini_term
+
+        # target matrix for the solver
+        target_X = X_train
+        # MMF-based regularization
+        if mmf_reg > 0 and item_group_weights is not None:
+            # re-weight the target matrix based on item group fairness - this encourages 
+            # the model to better reconstruct items from under-represented groups
+            # by reducing the target values for items from over-represented groups
+            weights = 1.0 - mmf_reg * item_group_weights
+            # clamp weights to be non-negative
+            weights = jnp.maximum(weights, 0.0)
+            target_X = X_train * weights
+
         # Try using jax.numpy.linalg.solve instead of scipy
         try:
             # solution = jnp.linalg.solve(K_reg, X_train, assume_a="pos")
-            solution = jnp.linalg.solve(K_reg, X_train)
+            solution = jnp.linalg.solve(K_reg, target_X)
         except:
             # Fallback to a more stable but slower method
 
             print("K_reg shape:", K_reg.shape)
-            print("X_train shape:", X_train.shape)
+            print("X_train shape:", target_X.shape)
 
             print("NaNs in K_reg:", jnp.isnan(K_reg).any())
-            print("NaNs in X_train:", jnp.isnan(X_train).any())
+            print("NaNs in X_train:", jnp.isnan(target_X).any())
             print("Infs in K_reg:", jnp.isinf(K_reg).any())
-            print("Infs in X_train:", jnp.isinf(X_train).any())
+            print("Infs in X_train:", jnp.isinf(target_X).any())
             print("NaNs in K_reg:", jnp.isnan(K_reg).any().item())
 
-
-
-
-
-            solution = jnp.linalg.lstsq(K_reg, X_train)[0]
-        # return jnp.dot(K_predict, sp.linalg.solve(K_reg, X_train, sym_pos=True))
+            solution = jnp.linalg.lstsq(K_reg, target_X)[0]
+        # return jnp.dot(K_predict, sp.linalg.solve(K_reg, target_X, sym_pos=True))
         return jnp.dot(K_predict, solution)
-        # return jnp.dot(K_predict, sp.linalg.solve(K_reg, X_train, assume_a='pos'))
+        # return jnp.dot(K_predict, sp.linalg.solve(K_reg, target_X, assume_a='pos'))
 
-    return kernelized_rr_forward, kernel_fn
+    jitted_rr_forward = jax.jit(kernelized_rr_forward, static_argnames=['gini_reg', 'mmf_reg'])
+
+    return jitted_rr_forward, kernel_fn
 
 
 def FullyConnectedNetwork(

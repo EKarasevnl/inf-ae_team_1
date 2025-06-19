@@ -38,7 +38,9 @@ hyper_params = {
 		"Ritual Entertainment",
 		"Valve",
 	 ],  # Categories to retain
+	"mmf_reg": 2.0,  # MMF regularization strength
 
+	
 	# Number of users to keep (randomly)
 	"user_support": -1, # -1 implies use all users
 	"seed": 42,

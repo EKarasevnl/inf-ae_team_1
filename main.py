@@ -9,6 +9,7 @@ import random
 import numpy as np
 
 from utils import log_end_epoch, get_item_propensity, get_common_path
+from metrics import get_item_group_weights
 
 def train(hyper_params, data):
     from model import make_kernelized_rr_forward
@@ -33,6 +34,9 @@ def train(hyper_params, data):
 
     # Used for computing the PSP-metric
     item_propensity = get_item_propensity(hyper_params, data)
+
+    # Used for computing the MMF-metric
+    item_group_weights = get_item_group_weights(hyper_params, data)
     
     # Evaluation
     start_time = time.time()
@@ -43,13 +47,15 @@ def train(hyper_params, data):
     # Validate on the validation-set
     for lamda in [ 0.0, 1.0, 5.0, 20.0, 50.0, 100.0 ] if hyper_params['grid_search_lamda'] else [ hyper_params['lamda'] ]:
         hyper_params['lamda'] = lamda
-        val_metrics = evaluate(hyper_params, kernelized_rr_forward, data, item_propensity, sampled_matrix)
+        # val_metrics = evaluate(hyper_params, kernelized_rr_forward, data, item_propensity, sampled_matrix)
+        val_metrics = evaluate(hyper_params, kernelized_rr_forward, data, item_propensity, sampled_matrix, item_group_weights=item_group_weights)
         if (best_metric is None) or (val_metrics[VAL_METRIC] > best_metric): best_metric, best_lamda = val_metrics[VAL_METRIC], lamda
 
     # Return metrics with the best lamda on the test-set
     hyper_params['lamda'] = best_lamda
     print(f"Best lamda: {best_lamda} with {VAL_METRIC}: {best_metric}")
-    test_metrics = evaluate(hyper_params, kernelized_rr_forward, data, item_propensity, sampled_matrix, test_set_eval = True)
+    # test_metrics = evaluate(hyper_params, kernelized_rr_forward, data, item_propensity, sampled_matrix, test_set_eval = True)
+    test_metrics = evaluate(hyper_params, kernelized_rr_forward, data, item_propensity, sampled_matrix, test_set_eval=True, item_group_weights=item_group_weights)
     
     log_end_epoch(hyper_params, test_metrics, 0, time.time() - start_time)
     start_time = time.time()
