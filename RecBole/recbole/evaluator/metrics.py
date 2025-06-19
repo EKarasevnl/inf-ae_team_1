@@ -833,9 +833,12 @@ class MMF(AbstractMetric):
         for item_id in recommended_items:
             # item_id is already the original ID, but may need conversion to match group_map keys
             item_key = int(item_id) if isinstance(item_id, (float, torch.Tensor)) else item_id
+            print()
             if item_key in group_map:
                 groups = self._parse_group_string(group_map[item_key])
                 exposure_groups.update(groups)
+            else:
+                print(item_key)
 
         total_exposures = sum(exposure_groups.values())
         print(f"total_exposures: {total_exposures}")
