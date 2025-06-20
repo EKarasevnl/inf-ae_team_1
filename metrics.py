@@ -173,35 +173,34 @@ def get_item_group_weights(hyper_params, data):
     group_map = data.data.get("item_map_to_category")
     item_id_to_idx = data.data.get("item_map")
     # DEBUG
-    # print("*"*50)
-    # print("[MMF SETUP] group_map:", group_map)
-    # print("[MMF SETUP] item_id_to_idx:", item_id_to_idx)
-    # print("*"*50)
+    print("*"*50)
+    print("[MMF SETUP] group_map:", group_map)
+    print("[MMF SETUP] item_id_to_idx:", item_id_to_idx)
+    print("*"*50)
 
     if not group_map or not item_id_to_idx:
         print("[MMF SETUP] WARNING: 'item_map_to_category' or 'item_map' not found. Cannot compute MMF weights.")
         return None
 
     group_counts = Counter(group_map.values())
+    print(f"[MMF SETUP] Found {len(group_counts)} unique groups in the catalog.")
+    print(f"[MMF SETUP] Group counts: {group_counts}")
     total_items_in_catalog = sum(group_counts.values())
+    print(f"[MMF SETUP] Total items in catalog: {total_items_in_catalog}")
 
     if total_items_in_catalog == 0:
         print("[MMF SETUP] WARNING: Catalog is empty. Cannot compute MMF weights.")
         return None
 
     group_catalog_share = {group: count / total_items_in_catalog for group, count in group_counts.items()}
+    print("[MMF SETUP] Group catalog share (weights):", group_catalog_share)
     num_items = hyper_params['num_items']
     item_weights = np.zeros(num_items)
 
-    # Iterate through the provided group map directly
-    for original_item_id, group in group_map.items():
-        lookup_key = np.float64(original_item_id)
-        
-        # internal, 0-based index for the original item ID
-        internal_idx = item_id_to_idx.get(lookup_key)
-
-        # item exists in our dataset and has a valid group
-        if internal_idx is not None and group is not None:
+    for original_item_id, internal_idx in item_id_to_idx.items():
+        group = group_map.get(original_item_id)
+        print(f"[MMF SETUP] Item ID: {original_item_id} (internal index: {internal_idx}) belongs to group: {group}")
+        if group is not None:
             item_weights[internal_idx] = group_catalog_share.get(group, 0.0)
 
     print(f"[MMF SETUP] Created item weight vector of shape {item_weights.shape}")

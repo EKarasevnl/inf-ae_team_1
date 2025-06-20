@@ -62,6 +62,7 @@ def make_kernelized_rr_forward(hyper_params):
         target_X = X_train
         # MMF-based regularization
         if mmf_reg > 0 and item_group_weights is not None:
+            print("[MMF] Using MMF regularization with strength:", mmf_reg)
             # re-weight the target matrix based on item group fairness - this encourages 
             # the model to better reconstruct items from under-represented groups
             # by reducing the target values for items from over-represented groups

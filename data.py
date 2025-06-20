@@ -219,7 +219,8 @@ def load_raw_dataset(
         )
 
         user_map = dict(zip(list(valid_users), list(range(len(valid_users)))))
-        item_map = dict(zip(list(valid_items), list(range(len(valid_items)))))
+        valid_items_int = [int(i) for i in valid_items]
+        item_map = dict(zip(valid_items_int, list(range(len(valid_items)))))
         print("User and item mapping created")
 
         return user_map, item_map
