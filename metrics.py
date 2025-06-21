@@ -220,3 +220,32 @@ def get_item_group_weights(hyper_params, data):
     non_zero_positions = np.nonzero(item_weights)[0]
     print("[MMF SETUP] Non-zero item weights at positions:", non_zero_positions)
     return item_weights
+
+def get_item_group_weights_v2(hyper_params, data):
+    """
+    Computes a weight for each item based on its group's catalog share.
+    """
+    print("[MMF SETUP] Computing item group weights for MMF regularization...")
+    group_map = data.data.get("item_map_to_category")
+
+    if not group_map:
+        print("[MMF SETUP] WARNING: 'item_map_to_category' not found. Cannot compute MMF weights.")
+        return None
+
+    group_counts = Counter(group_map.values())
+    total_items_in_catalog = len(group_map)
+    
+    group_catalog_share = {group: count / total_items_in_catalog for group, count in group_counts.items()}
+    print(f"[MMF SETUP] Group catalog share (weights): {group_catalog_share}")
+    
+    num_items = hyper_params['num_items']
+    item_weights = np.zeros(num_items)
+
+    for internal_idx, group in group_map.items():
+        if internal_idx < num_items:
+            item_weights[internal_idx] = group_catalog_share.get(group, 0.0)
+
+    print(f"[MMF SETUP] Created item weight vector of shape {item_weights.shape}")
+    print("[MMF SETUP] Number of non-zero item weights:", np.count_nonzero(item_weights))
+    
+    return item_weights
