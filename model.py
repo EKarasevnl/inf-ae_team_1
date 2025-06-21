@@ -62,6 +62,42 @@ def make_kernelized_rr_forward(hyper_params):
             )
             K_reg = K_reg + gini_term
 
+
+        # # gini-based regularization v2
+        # if gini_reg > 0:
+        #     jax.debug.print("--- [STRUCTURAL GINI REG] START ---")
+        #     jax.debug.print("[Structural Gini] Applying regularization with strength: {strength}", strength=gini_reg)
+
+        #     # 1. Calculate each user's "connectedness score"
+        #     #    This is their average similarity to all other users
+        #     #    We use the raw K_train before other regularizers are added
+        #     user_connectedness_scores = jnp.mean(K_train, axis=1)
+            
+        #     # 2. Normalize the scores to a stable [0, 1] range
+        #     max_score = jnp.max(user_connectedness_scores)
+        #     normalized_scores = user_connectedness_scores / (max_score + 1e-6)
+
+        #     # 3. Create "assistance weights"
+        #     #    Users with low connectedness get a high weight (close to 1.0)
+        #     #    Users with high connectedness get a low weight (close to 0.0)
+        #     assistance_weights = 1.0 - normalized_scores
+            
+        #     # 4. Create the penalty matrix
+        #     #    The penalty between user i and j is determined by who needs more help
+        #     structural_penalty_matrix = jnp.maximum(assistance_weights[:, None], assistance_weights[None, :])
+
+        #     # 5. Scale and add the penalty to the kernel matrix
+        #     kernel_scale = jnp.trace(K_train) / K_train.shape[0]
+        #     structural_gini_term = jnp.abs(gini_reg) * kernel_scale * structural_penalty_matrix
+        #     K_reg = K_reg + structural_gini_term
+
+        #     jax.debug.print("[Structural Gini] Assistance weight stats: min={min_w}, max={max_w}, mean={mean_w}",
+        #                   min_w=jnp.min(assistance_weights),
+        #                   max_w=jnp.max(assistance_weights),
+        #                   mean_w=jnp.mean(assistance_weights))
+        #     jax.debug.print("--- [STRUCTURAL GINI REG] END ---")
+        # # ================================================================= #
+
         # --- MMF KERNEL REGULARIZATION ---
         # This block modifies K_reg directly to be fairness-aware.
         if mmf_reg > 0 and item_group_weights is not None:
