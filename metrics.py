@@ -174,6 +174,9 @@ def get_item_group_weights(hyper_params, data):
     item_id_to_idx = data.data.get("item_map")
     # DEBUG
     print("*"*50)
+    # length of thhe group_map and item_id_to_idx
+    print("[MMF SETUP] Length of group_map:", len(group_map) if group_map else "None")
+    print("[MMF SETUP] Length of item_id_to_idx:", len(item_id_to_idx) if item_id_to_idx else "None")
     print("[MMF SETUP] group_map:", group_map)
     print("[MMF SETUP] item_id_to_idx:", item_id_to_idx)
     print("*"*50)
@@ -185,7 +188,7 @@ def get_item_group_weights(hyper_params, data):
     group_counts = Counter(group_map.values())
     print(f"[MMF SETUP] Found {len(group_counts)} unique groups in the catalog.")
     print(f"[MMF SETUP] Group counts: {group_counts}")
-    total_items_in_catalog = sum(group_counts.values())
+    total_items_in_catalog = len(group_map)
     print(f"[MMF SETUP] Total items in catalog: {total_items_in_catalog}")
 
     if total_items_in_catalog == 0:
@@ -197,13 +200,22 @@ def get_item_group_weights(hyper_params, data):
     num_items = hyper_params['num_items']
     item_weights = np.zeros(num_items)
 
+    group_map_indices_list = list(group_map.keys())
+    print(f"[MMF SETUP] Group map indices list length: {len(group_map_indices_list)}")
+    print(f"[MMF SETUP] Group map indices list: {group_map_indices_list}")
     for original_item_id, internal_idx in item_id_to_idx.items():
-        group = group_map.get(original_item_id)
-        print(f"[MMF SETUP] Item ID: {original_item_id} (internal index: {internal_idx}) belongs to group: {group}")
+        # group = group_map.get(original_item_id) # PREVIOUS
+        group = group_map.get(internal_idx, None) # NEW
+        # print(f"[MMF SETUP] Item ID: {original_item_id} (internal index: {internal_idx}) belongs to group: {group}")
         if group is not None:
             item_weights[internal_idx] = group_catalog_share.get(group, 0.0)
+        else:
+            if internal_idx in group_map_indices_list:
+                print(f"[MMF SETUP] WARNING! Item ID {original_item_id} (internal index: {internal_idx}) does not belong to any group. Setting weight to 0.\nTHIS SHOULD NOT HAPPEN!")
 
     print(f"[MMF SETUP] Created item weight vector of shape {item_weights.shape}")
+    # print number of non-zero weights
+    print("[MMF SETUP] Number of non-zero item weights:", np.count_nonzero(item_weights))
     print("[MMF SETUP] Item weights (non-zero):", item_weights[item_weights > 0])
     non_zero_positions = np.nonzero(item_weights)[0]
     print("[MMF SETUP] Non-zero item weights at positions:", non_zero_positions)

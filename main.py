@@ -83,4 +83,9 @@ def main(hyper_params, gpu_id = None):
 
 if __name__ == "__main__":
     from hyper_params import hyper_params
+    print(">"* 50)
+    print("Running with hyper-parameters:")
+    for key, value in hyper_params.items():
+        print(f"{key}: {value}")
+    print(">"* 50)
     main(hyper_params)

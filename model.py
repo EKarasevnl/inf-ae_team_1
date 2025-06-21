@@ -46,7 +46,11 @@ def make_kernelized_rr_forward(hyper_params):
             / K_train.shape[0]
         )
 
-        # gini-based regularization -> NOTE: for now it doesn't change the final results
+        # gini-based regularization
+        # "smoothes" the kernel matrix, reducing the relative differences between high and low similarity scores
+        # the regularizer forces the model to consider a wider, more "democratic" set of users when making a prediction for a target user 
+        # -> this "blended" user history is, on average, likely to contain a more diverse set of items than any single niche user's history.
+        # indirect lever: here we change how users are weighted, hoping that this will have a downstream effect on the variety of items.
         if gini_reg > 0:
             num_users = K_train.shape[0]
             J = jnp.ones((num_users, num_users))
@@ -58,18 +62,79 @@ def make_kernelized_rr_forward(hyper_params):
             )
             K_reg = K_reg + gini_term
 
+        # --- MMF KERNEL REGULARIZATION ---
+        # This block modifies K_reg directly to be fairness-aware.
+        if mmf_reg > 0 and item_group_weights is not None:
+            jax.debug.print("--- [MMF KERNEL REG] START ---")
+            jax.debug.print("[MMF Kernel] Applying regularization with strength: {strength}", strength=mmf_reg)
+
+            # 1. Calculate item POPULARITY (opposite of the weights)
+            item_popularities = item_group_weights
+
+            # 2. Calculate each user's "mainstream score"
+            # The score is the average popularity of items in their history.
+            user_interaction_counts = jnp.sum(X_train, axis=1)
+            user_popularity_sum = jnp.dot(X_train, item_popularities)
+            # Add epsilon for stability to avoid division by zero
+            user_mainstream_scores = user_popularity_sum / (user_interaction_counts + 1e-6)
+            
+            # 3. Create a penalty matrix from the scores.
+            # The penalty between user i and j is the sum of their mainstream scores.
+            # This penalizes similarity to any user who has mainstream tastes.
+            mmf_penalty_matrix = user_mainstream_scores[:, None] + user_mainstream_scores[None, :]
+
+            # 4. Scale the penalty term similarly to the gini regularizer for consistency
+            kernel_scale = jnp.trace(K_train) / K_train.shape[0]
+            mmf_term = jnp.abs(mmf_reg) * kernel_scale * mmf_penalty_matrix
+
+            # 5. Add the MMF penalty to the kernel matrix
+            K_reg = K_reg + mmf_term
+
+            jax.debug.print("[MMF Kernel] Mainstream score stats: min={min_s}, max={max_s}, mean={mean_s}",
+                          min_s=jnp.min(user_mainstream_scores),
+                          max_s=jnp.max(user_mainstream_scores),
+                          mean_s=jnp.mean(user_mainstream_scores))
+            jax.debug.print("--- [MMF KERNEL REG] END ---")
+
+
         # target matrix for the solver
         target_X = X_train
-        # MMF-based regularization
-        if mmf_reg > 0 and item_group_weights is not None:
-            print("[MMF] Using MMF regularization with strength:", mmf_reg)
-            # re-weight the target matrix based on item group fairness - this encourages 
-            # the model to better reconstruct items from under-represented groups
-            # by reducing the target values for items from over-represented groups
-            weights = 1.0 - mmf_reg * item_group_weights
-            # clamp weights to be non-negative
-            weights = jnp.maximum(weights, 0.0)
-            target_X = X_train * weights
+        
+        # # --- MMF ITEM REGULARIZATION ---
+        # if mmf_reg > 0 and item_group_weights is not None:
+        #     print("[MMF] Using MMF regularization with strength:", mmf_reg)
+        #     # re-weight the target matrix based on item group fairness - this encourages 
+        #     # the model to better reconstruct items from under-represented groups
+        #     # by reducing the target values for items from over-represented groups
+        #     # if item_group_weights == 0 then weights will be 0.5,  otherwise 1 - group_weights
+        #     weights = jnp.where(item_group_weights == 0.0, 0.5, 1.0 - item_group_weights)
+            
+        #     # clamp weights to be non-negative
+        #     # weights = jnp.maximum(weights, 0.0)
+        #     weights = jnp.maximum(0,0, 0.0)
+
+        #     jax.debug.print("[MMF] Weights Stats: min={min_w}, max={max_w}, mean={mean_w}",
+        #                   min_w=jnp.min(weights),
+        #                   max_w=jnp.max(weights),
+        #                   mean_w=jnp.mean(weights))
+
+        #     jax.debug.print("[MMF] Items with non-zero weights: {nnz}/{total}",
+        #                   nnz=jnp.count_nonzero(weights),
+        #                   total=weights.size)
+            
+        #     jax.debug.print("--- [MMF REG] END ---")
+
+        #     target_X = X_train * mmf_reg * weights
+
+        #     # print target shape and stats
+        #     jax.debug.print("[MMF] Target X shape: {shape}, min={min_x}, max={max_x}, mean={mean_x}",
+        #                   shape=target_X.shape,
+        #                   min_x=jnp.min(target_X),
+        #                   max_x=jnp.max(target_X),
+        #                   mean_x=jnp.mean(target_X))
+        #     jax.debug.print("[MMF] Target X NaNs: {has_nan}, Infs: {has_inf}",
+        #                   has_nan=jnp.isnan(target_X).any(),
+        #                   has_inf=jnp.isinf(target_X).any())
 
         # Try using jax.numpy.linalg.solve instead of scipy
         try:

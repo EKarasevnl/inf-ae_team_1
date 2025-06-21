@@ -8,6 +8,7 @@
 # 	"use_gini": True,
 # 	"item_id": "item_id:token",  # configure it based on the .item file
 #     "category_id": "genre:token_seq",  # configure it based on the .item file
+# 	"gini_reg": 1000.0,  # Gini regularization strength
 
 
 # 	# Number of users to keep (randomly)
@@ -29,7 +30,7 @@ hyper_params = {
 	"categories_to_retain": [
 		"Strategy First",
 		"Malfador Machinations",
-		"Sonalysts ",
+		"Sonalysts",
 		"Introversion Software",
 		"Outerlight Ltd.",
 		"Darklight Games",
