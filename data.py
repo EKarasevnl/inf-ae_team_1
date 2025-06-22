@@ -19,6 +19,8 @@ class Dataset:
             hyper_params["category_id"],
             categories_to_retain=hyper_params.get("categories_to_retain", None),
             inter_item_col_name=hyper_params.get("inter_item_col_name", "product_id:token"),
+            use_first_category=hyper_params.get("use_first_category", False),
+            min_category_support=hyper_params.get("min_category_support", 0),
         )
         self.set_of_active_users = list(set(self.data["train"][:, 0].tolist()))
         self.hyper_params = self.update_hyper_params(hyper_params)
@@ -71,6 +73,8 @@ def load_raw_dataset(
     item_path=None,
     categories_to_retain=None, # list of categories to retain
     inter_item_col_name=None, # parameter for the .inter file's item column
+    use_first_category=False, # if True, will use the first category in the list
+    min_category_support=0, # minimum number of items in a category to retain it
 ):
     if data_path is None or index_path is None:
         data_path, index_path = [
@@ -120,6 +124,19 @@ def load_raw_dataset(
         )
     else:
         print(f"Category ID '{category_id}' found in item data")
+
+    ### NEW: if use_first_category is True, we will only keep the first category in the list
+    if use_first_category:
+        print(f"\n[PRE-PROCESSING] Using only the first category in the list for column '{category_id}'")
+        item_df[category_id] = item_df[category_id].apply(lambda x: x.split(" ")[0])
+    
+    ### NEW: if min_category_support is set, we will filter out categories with less than that many items
+    if min_category_support > 0:
+        print(f"\n[PRE-PROCESSING] Filtering categories with less than {min_category_support} items")
+        category_counts = item_df[category_id].value_counts()
+        categories_to_keep = category_counts[category_counts >= min_category_support].index
+        print(f"[PRE-PROCESSING] Keeping {len(categories_to_keep)} categories with sufficient support")
+        item_df = item_df[item_df[category_id].isin(categories_to_keep)].copy()
 
     item_df = item_df[item_df[category_id].notna()]
     print(f"Filtered item data to {item_df.shape[0]} rows with non-NaN categories")
@@ -403,6 +420,8 @@ def load_raw_dataset_v2(
     item_path=None,
     categories_to_retain=None,
     inter_item_col_name=None,
+    use_first_category=False,  # if True, will use the first category in the list
+    min_category_support=0,  # minimum number of items in a category to retain it
 ):
     # --- 1. Load all raw data ---
     if data_path is None or index_path is None:
