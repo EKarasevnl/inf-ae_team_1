@@ -4,12 +4,16 @@ import jax.numpy as jnp
 from numba import jit, float64
 
 import numpy as np
+import os
+import json
+import yaml
 
 from hyper_params import hyper_params
 from metrics import compute_mmf
 
 USE_GINI = hyper_params.get("use_gini", False)
 USE_MMF = hyper_params.get("use_mmf", False)
+POST_PROCESS = hyper_params.get("post_process", False)
 
 
 class GiniCoefficient:
@@ -109,6 +113,10 @@ def evaluate(
 
     user_recommendations = {}
 
+    # --- NEW: Create a placeholder for the full scores matrix ---
+    if POST_PROCESS:
+        full_ranking_scores = np.zeros((hyper_params["num_users"], hyper_params["num_items"]), dtype=np.float32)
+
     bsz = 140_000  # These many users
     print(f"[EVALUATE] Processing users in batches of {bsz}")
 
@@ -130,6 +138,10 @@ def evaluate(
         print(
             f"[EVALUATE] Forward pass complete, prediction shape: {np.array(temp_preds).shape}"
         )
+
+        # --- NEW: Store the batch predictions in the full matrix ---
+        if POST_PROCESS:
+            full_ranking_scores[i:batch_end] = np.array(temp_preds)
 
         print(f"[EVALUATE] Evaluating batch {i} to {batch_end-1}")
         metrics, temp_preds, temp_y, user_recommendations_batch = evaluate_batch(
@@ -216,6 +228,92 @@ def evaluate(
         f"[EVALUATE] Final metrics: num_users={metrics['num_users']}, num_interactions={metrics['num_interactions']}"
     )
 
+     # --- NEW: Add the file generation block ---
+    if POST_PROCESS:
+        print("\n[POST-PROCESS] Generating files for FairDiverse...")
+        dataset_name = hyper_params.get("dataset", "unknown_dataset")
+        
+        # Step 1: Create directories
+        log_dir = f"FairDiverse/recommendation/log/{dataset_name}"
+        data_dir = f"FairDiverse/recommendation/processed_dataset/{dataset_name}"
+        os.makedirs(log_dir, exist_ok=True)
+        os.makedirs(data_dir, exist_ok=True)
+        print(f"[POST-PROCESS] Created directories: {log_dir} and {data_dir}")
+
+        # Step 2: Save ranking_scores.npz
+        ranking_scores_path = os.path.join(log_dir, "ranking_scores.npz")
+        np.savez_compressed(ranking_scores_path, scores=full_ranking_scores)
+        # print shape and some small snippets of the matrix
+        print(f"[POST-PROCESS] Ranking scores matrix shape: {full_ranking_scores.shape}")
+        print(f"[POST-PROCESS] Sample of ranking scores for first 5 users:")
+        for i in range(min(5, full_ranking_scores.shape[0])):
+            print(f"User {i}: {full_ranking_scores[i, :10]}...")
+        print(f"[POST-PROCESS] Saved ranking scores matrix to: {ranking_scores_path}")
+
+        # Step 3: Save iid2pid.json
+        # The keys are remapped item IDs, which is correct. Convert keys to string for JSON.
+        iid2pid = {str(k): str(v) for k, v in data.data["item_map_to_category"].items()}
+        iid2pid_path = os.path.join(data_dir, "iid2pid.json")
+        with open(iid2pid_path, 'w') as f:
+            json.dump(iid2pid, f)
+        print(f"[POST-PROCESS] Saved item-to-group mapping to: {iid2pid_path}")
+        
+        # Step 4: Save process_config.yaml
+        # config_data = {
+        #     'user_id': 'user_id:token', # column name of the user ID
+        #     'item_id': 'item_id:token', # column name of the item ID, in this case we recommend movies
+        #     'group_id': 'first_class:token', # column name of the groups to be considered for fairness, in this case we consider the genres of the movie
+        #     'label_id': 'rating:float', # column name for the label, indicating the interest of the user in the item
+        #     'timestamp': 'timestamp:float', # column name for the timestamp of when the interaction happened
+        #     'text_id': 'movie_title:token_seq', # column name for the text ID of the item (e.g. movie name, book title)
+        #     'label_threshold': 3, # if label exceed the value will be regarded as 1, otherwise, it will be accounted into 0 
+        #     # --> we consider a positive recommendation if a user rated a movie with a value higher than 3
+        #     'item_domain': 'movie', # description of the dataset domain (e.g. movie, music, jobs etc.)
+        #     'item_val': 0, # keep items which have at least this number of interactions
+        #     'user_val': 0, # keep users who have at least this number of interactions
+        #     'group_val': 5, # keep groups which have at least this number of interactions 
+        #     'group_aggregation_threshold': 15,  ##If the number of items owned by a group is less than this value, 
+        #     # those groups will be merged into a single group called the 'infrequent group'. 
+        #     # For example, Fantasy, War, Musician, ... will be merged into one group called 'infrequent group',
+        #     # as the number of items belonging to this group is under the threshold.
+        #     'sample_size': 1.0, ###Sample ratio of the whole dataset to form a new subset dataset for training.
+        #     'valid_ratio': 0.1, ### Samples to be used for validation
+        #     'test_ratio': 0.1, ### Samples to be used for test
+        #     'reprocess': True, ##do you need to re-process the dataset according to your personalized requirements
+        #     'sample_num': 350, # needs to be higher than the max number of positive samples per user
+        #     'history_length': 20, # length of historical interactions of a user - [item_1, item_2, item_3, ...] to be considered 
+        # }
+        num_users = hyper_params["num_users"]
+        num_items = hyper_params["num_items"]
+        num_groups = len(set(iid2pid.values()))
+        config_data = {
+            'user_num': num_users,
+            'item_num': num_items,
+            'group_num': num_groups
+        }
+        
+        process_config_path = os.path.join(data_dir, "process_config.yaml")
+        with open(process_config_path, "w") as file:
+            yaml.dump(config_data, file, sort_keys=False)
+        print(f"[POST-PROCESS] Saved data processing config to: {process_config_path}")
+
+        # Step 5: Save post-processing model config
+        postprocessing_model_name = "CPFair"
+        config_model = {
+            "ranking_store_path": f"{dataset_name}",
+            "model": f"{postprocessing_model_name}",
+            "fair-rank": True,
+            "log_name": f"{postprocessing_model_name}_without_fairdiverse_{dataset_name}",
+            "topk": [5, 10, 20],
+            "fairness_metrics": ["MinMaxRatio", "MMF", "GINI", "Entropy"],
+            "fairness_type": "Exposure"
+        }
+        model_config_path = f"FairDiverse/recommendation/postprocessing_without_fairdiverse.yaml"
+        with open(model_config_path, "w") as file:
+            yaml.dump(config_model, file, sort_keys=False)
+        print(f"[POST-PROCESS] Saved post-processing model config to: {model_config_path}")
+
+
     return metrics
 
 
@@ -276,7 +374,7 @@ def evaluate_batch(
 
         for b in range(len(logits)):
             
-            if USE_GINI or USE_MMF:
+            if USE_GINI or USE_MMF or POST_PROCESS:
                 # Update item exposures for this batch at this k
                 for item_idx in indices[b][:k]:
 
@@ -338,7 +436,7 @@ def evaluate_batch(
     print(
         f"[EVAL_BATCH] Batch evaluation complete, returning {len(temp_preds)} predictions"
     )
-    return metrics, temp_preds, temp_y, user_recommendations if USE_GINI else {}
+    return metrics, temp_preds, temp_y, user_recommendations if (USE_GINI or USE_MMF or POST_PROCESS) else {}
 
 
 @jit(float64(float64[:], float64[:]))

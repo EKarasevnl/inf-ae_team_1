@@ -7,6 +7,7 @@ import gc
 import pandas as pd
 import os
 from tqdm import tqdm
+from hyper_params import hyper_params
 
 tqdm.pandas()
 
@@ -18,7 +19,7 @@ class Dataset:
             hyper_params["item_id"],
             hyper_params["category_id"],
             categories_to_retain=hyper_params.get("categories_to_retain", None),
-            inter_item_col_name=hyper_params.get("inter_item_col_name", "product_id:token"),
+            inter_item_col_name=hyper_params.get("inter_item_col_name", hyper_params.get("item_id", "item_id:token")),
             use_first_category=hyper_params.get("use_first_category", False),
             min_category_support=hyper_params.get("min_category_support", 0),
         )
@@ -135,91 +136,44 @@ def load_raw_dataset(
         print(f"\n[PRE-PROCESSING] Filtering categories with less than {min_category_support} items")
         category_counts = item_df[category_id].value_counts()
         categories_to_keep = category_counts[category_counts >= min_category_support].index
-        print(f"[PRE-PROCESSING] Keeping {len(categories_to_keep)} categories with sufficient support")
         item_df = item_df[item_df[category_id].isin(categories_to_keep)].copy()
 
     item_df = item_df[item_df[category_id].notna()]
     print(f"Filtered item data to {item_df.shape[0]} rows with non-NaN categories")
     item_df = item_df[item_df[item_id].notna()]
     print(f"Filtered item data to {item_df.shape[0]} rows with non-NaN item IDs")
+    item_df[item_id] = pd.to_numeric(item_df[item_id], errors='coerce').astype('Int64')
+
+
+    if categories_to_retain and isinstance(categories_to_retain, list):
+        print(f"\n[FILTERING] Applying filter to retain {len(categories_to_retain)} specified categories.")
+        item_df = item_df[item_df[category_id].isin(set(categories_to_retain))].copy()
     
-    if categories_to_retain and isinstance(categories_to_retain, list) and category_id in item_df.columns:
-        print(f"\n[FILTERING] Applying filter to retain {len(categories_to_retain)} explicitly defined categories from column '{category_id}'.")
-        
-        categories_to_filter_by = set(categories_to_retain)
-        print(f"[FILTERING] Categories to retain: {list(categories_to_filter_by)}")
+    print("\n[SYNC] Applying final filters to all data sources...")
+    final_retained_item_ids = set(item_df[item_id].dropna().tolist())
+    
+    # Filter in-memory HDF5 data
+    interaction_mask = np.isin(data[:, 1], list(final_retained_item_ids))
+    data = data[interaction_mask]
+    index = index[interaction_mask]
 
-        original_rows = len(item_df)
-        item_df = item_df[item_df[category_id].isin(categories_to_filter_by)].copy()
-        print(f"[FILTERING] Item catalog filtered from {original_rows} to {len(item_df)} rows.")
+    suffix = "post_process" if hyper_params.get("post_process", False) else "filtered"
+    
+    # Save filtered .item file
+    if item_path:
+        base, ext = os.path.splitext(item_path)
+        filtered_item_path = f"{base}_{suffix}{ext}"
+        print(f"-> Saving filtered item catalog to: {filtered_item_path}")
+        item_df.to_csv(filtered_item_path, sep='\t', index=False, encoding='latin-1')
 
-        if item_path:
-            base, ext = os.path.splitext(item_path)
-            filtered_path = f"{base}_filtered{ext}"
-            try:
-                print(f"[FILTERING] Saving filtered item catalog to: {filtered_path}")
-                item_df.to_csv(filtered_path, sep='\t', index=False, encoding='latin-1')
-            except Exception as e:
-                print(f"[FILTERING] Error saving filtered file: {e}")
-        
-        # Filter the .inter file using the configurable column name
-        print("\n[INTERACTION FILE] Filtering the .inter file based on the filtered item catalog.")
-        inter_path = f"data/{dataset}/{dataset}.inter"
-        if not os.path.exists(inter_path):
-            print(f"[INTERACTION FILE] Warning: {inter_path} not found. Skipping .inter file filtering.")
-        # Check if the configurable column name was provided
-        elif not inter_item_col_name:
-            print(f"[INTERACTION FILE] Warning: 'inter_item_col_name' not configured. Skipping .inter file filtering.")
-        else:
-            try:
-                print(f"[INTERACTION FILE] Loading raw interactions from {inter_path}")
-                inter_df = pd.read_csv(inter_path, delimiter='\t', header=0, engine='python', encoding='latin-1')
-                
-                retained_item_ids_for_inter = set(item_df[item_id].tolist())
-                
-                original_inter_rows = len(inter_df)
-                # Use the configurable column name for filtering
-                filtered_inter_df = inter_df[inter_df[inter_item_col_name].isin(retained_item_ids_for_inter)].copy()
-                print(f"[INTERACTION FILE] Filtered .inter file from {original_inter_rows} to {len(filtered_inter_df)} rows.")
-                
-                # --- Remap user_id to be contiguous ---
-                user_col_name = 'user_id:token'
-                print(f"[INTERACTION FILE] Remapping '{user_col_name}' to be contiguous.")
-                
-                # Create a mapping from old user IDs to new 0-indexed IDs
-                unique_users = filtered_inter_df[user_col_name].unique()
-                user_remapping_dict = {old_id: new_id for new_id, old_id in enumerate(unique_users)}
-                
-                # Apply the mapping
-                filtered_inter_df[user_col_name] = filtered_inter_df[user_col_name].map(user_remapping_dict)
-                print(f"[INTERACTION FILE] Remapped {len(unique_users)} unique users.")
-                # --- END NEW LOGIC ---
-
-                # Format item ID column and save
-                filtered_inter_df[inter_item_col_name] = filtered_inter_df[inter_item_col_name].astype('Int64')
-
-                filtered_inter_path = f"data/{dataset}/{dataset}_filtered.inter"
-                print(f"[INTERACTION FILE] Saving filtered interactions to {filtered_inter_path}")
-                filtered_inter_df.to_csv(filtered_inter_path, sep='\t', index=False, encoding='latin-1')
-
-            except KeyError as e:
-                print(f"[INTERACTION FILE] An error occurred: Column '{e}' not found in {inter_path}.")
-            except Exception as e:
-                print(f"[INTERACTION FILE] An error occurred during .inter file processing: {e}")
-        
-        print("[FILTERING] Item catalog and interaction file filtering complete.\n")
-
-    retained_item_ids = set(item_df[item_id].astype(int).tolist())
-    if len(retained_item_ids) < item_df[item_id].nunique():
-        print(f"[HDF5 FILTER] Using the {len(retained_item_ids)} items from the filtered catalog to filter HDF5 interactions.")
-        original_interaction_count = data.shape[0]
-        
-        interaction_mask = np.isin(data[:, 1], list(retained_item_ids))
-        
-        data = data[interaction_mask]
-        index = index[interaction_mask]
-        
-        print(f"[HDF5 FILTER] HDF5 interaction data filtered from {original_interaction_count} to {data.shape[0]} records.")
+    # Filter and save .inter file
+    inter_path = f"data/{dataset}/{dataset}.inter"
+    if os.path.exists(inter_path) and inter_item_col_name:
+        inter_df = pd.read_csv(inter_path, delimiter='\t', header=0, engine='python', encoding='latin-1')
+        filtered_inter_df = inter_df[inter_df[inter_item_col_name].isin(final_retained_item_ids)]
+        filtered_inter_path = f"data/{dataset}/{dataset}_{suffix}.inter"
+        print(f"-> Saving filtered interactions file to: {filtered_inter_path}")
+        filtered_inter_df.to_csv(filtered_inter_path, sep='\t', index=False, encoding='latin-1')
 
     def remap(data, index):
         print("Remapping user and item IDs based on filtered interactions")
@@ -410,150 +364,3 @@ if __name__ == "__main__":
     print(f"Number of users in final dataset: {data.hyper_params['num_users']}")
     print(f"Number of items in final dataset: {data.hyper_params['num_items']}")
 
-
-def load_raw_dataset_v2(
-    dataset,
-    item_id,
-    category_id,
-    data_path=None,
-    index_path=None,
-    item_path=None,
-    categories_to_retain=None,
-    inter_item_col_name=None,
-    use_first_category=False,  # if True, will use the first category in the list
-    min_category_support=0,  # minimum number of items in a category to retain it
-):
-    # --- 1. Load all raw data ---
-    if data_path is None or index_path is None:
-        data_path, index_path = [f"data/{dataset}/total_data.hdf5", f"data/{dataset}/index.npz"]
-    print(f"Using default paths: data_path={data_path}, index_path={index_path}")
-
-    print(f"Loading interaction data from {data_path}")
-    with h5py.File(data_path, "r") as f:
-        data = np.array(list(zip(f["user"][:], f["item"][:], f["rating"][:])))
-    print(f"Loading index from {index_path}")
-    index = np.array(np.load(index_path)["data"], dtype=np.int32)
-    
-    print("Loading item metadata...")
-    if item_path is None:
-        item_path = f"data/{dataset}/{dataset}.item"
-    try:
-        item_df = pd.read_csv(item_path, delimiter="\t", header=0, engine="python", encoding="latin-1")
-    except pd.errors.ParserError:
-        item_df = pd.read_csv(item_path, delimiter="\t", header=0, engine="python", encoding="utf-8", on_bad_lines="warn")
-
-    if category_id not in item_df.columns:
-        item_df[category_id] = "DummyCategory"
-
-    print("\n[CLEANING] Sanitizing item metadata...")
-    item_df[item_id] = pd.to_numeric(item_df[item_id], errors='coerce')
-    
-    # --- 2. Remove rows with NaN in item_id or category_id ---
-    original_rows = len(item_df)
-    item_df.dropna(subset=[item_id, category_id], inplace=True)
-    
-    # convert the ID column to integer
-    item_df[item_id] = item_df[item_id].astype(int)
-    print(f"[CLEANING] Removed {original_rows - len(item_df)} rows with invalid data. Clean rows: {len(item_df)}.")
-
-    # --- 3. Create the Master Category Map ---
-    print("\nCreating a comprehensive original_id -> category map (pre-filtering)...")
-    original_id_to_category_map = dict(zip(item_df[item_id], item_df[category_id]))
-    print(f"-> Created master map with {len(original_id_to_category_map)} entries.")
-
-    # --- 4. Filter the item metadata based on categories_to_retain ---
-    if categories_to_retain and isinstance(categories_to_retain, list):
-        print(f"\n[FILTERING] Applying filter to retain {len(categories_to_retain)} categories.")
-        item_df = item_df[item_df[category_id].isin(set(categories_to_retain))].copy()
-        print(f"[FILTERING] Item catalog filtered down to {len(item_df)} rows.")
-
-    # --- 5. Filter the interaction arrays based on the now-clean and filtered item_df ---
-    valid_original_item_ids = set(item_df[item_id].tolist())
-    print(f"\n[INTERACTION FILTER] Applying filter to HDF5 data based on {len(valid_original_item_ids)} valid items.")
-    interaction_mask = np.isin(data[:, 1], list(valid_original_item_ids))
-    data = data[interaction_mask]
-    index = index[interaction_mask]
-    print(f"[INTERACTION FILTER] Interaction data filtered to {data.shape[0]} rows.")
-
-    # --- 6. Remap users and items using the original, explicit scanning method ---
-    def remap(d, idx):
-        print("\nRemapping user and item IDs based on filtered interactions")
-        valid_users, valid_items = set(), set()
-        print("Identifying valid users and items from the filtered set")
-        for at, (u, i, r) in enumerate(tqdm(d, desc="Scanning for valid entries")):
-            if idx[at] != -1:
-                valid_users.add(u)
-                valid_items.add(i)
-        print(f"Found {len(valid_users)} valid users and {len(valid_items)} valid items post-filtering.")
-        user_map = {original_id: new_id for new_id, original_id in enumerate(sorted(list(valid_users)))}
-        item_map = {original_id: new_id for new_id, original_id in enumerate(sorted(list(valid_items)))}
-        return user_map, item_map
-
-    user_map, item_map = remap(data, index)
-    
-    # --- 7. Create final data structures ---
-    print("\nCreating final data structures...")
-    
-    item_map_to_category = {}
-    for original_id, remapped_id in item_map.items():
-        category = original_id_to_category_map.get(original_id)
-        if category is not None:
-            item_map_to_category[remapped_id] = category
-            
-    new_data, new_index = [], []
-    for at, (u, i, r) in enumerate(tqdm(data, desc="Remapping data")):
-        if index[at] != -1: # and u in user_map and i in item_map:
-            new_data.append([user_map[u], item_map[i], 1.0])
-            new_index.append(index[at])
-    data = np.array(new_data, dtype=np.int32)
-    index = np.array(new_index, dtype=np.int32)
-
-    def select(d, idx, val): return d[np.where(idx == val)[0]]
-    
-    ret = {
-        "item_map": item_map, "item_map_to_category": item_map_to_category,
-        "train": select(data, index, 0), "val": select(data, index, 1), "test": select(data, index, 2),
-    }
-    
-    num_users, num_items = len(user_map), len(item_map)
-    print(f"Split sizes - Train: {len(ret['train'])}, Val: {len(ret['val'])}, Test: {len(ret['test'])}")
-    del data, index
-    gc.collect()
-
-    # --- 8. Build user history, sparse matrices, and negatives ---
-    def make_user_history(arr):
-        user_history = [set() for _ in range(num_users)]
-        for u, i, r in arr:
-            if u < num_users and i < num_items:
-                user_history[u].add(i)
-        return user_history
-    
-    ret["train_positive_set"] = make_user_history(ret["train"])
-    ret["val_positive_set"] = make_user_history(ret["val"])
-    ret["test_positive_set"] = make_user_history(ret["test"])
-    ret["train_matrix"] = csr_matrix((np.ones(len(ret["train"])), (ret["train"][:, 0], ret["train"][:, 1])), shape=(num_users, num_items))
-    ret["val_matrix"] = csr_matrix((np.ones(len(ret["val"])), (ret["val"][:, 0], ret["val"][:, 1])), shape=(num_users, num_items))
-
-    print("Generating negative samples for evaluation...")
-    negatives_list = [] # Use a temporary standard list
-    all_items = set(range(num_items))
-
-    for u in tqdm(range(num_users), desc="Generating negatives"):
-        positive_items = ret["train_positive_set"][u].union(ret["test_positive_set"][u])
-        possible_negatives = list(all_items - positive_items)
-        
-        if len(possible_negatives) > 0:
-            num_negatives = min(len(possible_negatives), 50)
-            sampled_negatives = np.random.choice(possible_negatives, num_negatives, replace=False)
-            negatives_list.append(sampled_negatives)
-        else:
-            negatives_list.append(np.array([], dtype=np.int32))
-
-    ret["negatives"] = np.array(negatives_list)
-    print(f"Generated negative samples.")
-
-    ret.update({"num_users": num_users, "num_items": num_items, "num_interactions": len(ret["train"])})
-    print("\nDataset loading complete. Summary:")
-    print(f"# users: {num_users}, # items: {num_items}, # interactions: {len(ret['train'])}")
-    
-    return ret

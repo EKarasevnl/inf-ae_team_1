@@ -1,0 +1,14 @@
+ranking_store_path: ml-1m
+model: CPFair
+fair-rank: true
+log_name: CPFair_without_fairdiverse_ml-1m
+topk:
+- 5
+- 10
+- 20
+fairness_metrics:
+- MinMaxRatio
+- MMF
+- GINI
+- Entropy
+fairness_type: Exposure

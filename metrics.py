@@ -177,8 +177,8 @@ def get_item_group_weights(hyper_params, data):
     # length of thhe group_map and item_id_to_idx
     print("[MMF SETUP] Length of group_map:", len(group_map) if group_map else "None")
     print("[MMF SETUP] Length of item_id_to_idx:", len(item_id_to_idx) if item_id_to_idx else "None")
-    print("[MMF SETUP] group_map:", group_map)
-    print("[MMF SETUP] item_id_to_idx:", item_id_to_idx)
+    # print("[MMF SETUP] group_map:", group_map)
+    # print("[MMF SETUP] item_id_to_idx:", item_id_to_idx)
     print("*"*50)
 
     if not group_map or not item_id_to_idx:
