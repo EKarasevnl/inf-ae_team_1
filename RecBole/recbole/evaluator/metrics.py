@@ -849,8 +849,6 @@ class MMF(AbstractMetric):
 
         print(f"[MMF] -> RESULTS: {fairness_scores.values()} - values")
 
-        mmf_filtered = {group: count for group, count in fairness_scores.items() if count >= 10}
-        print(f"Only categories with 10+ items: {min(mmf_filtered.values())}")
         return min(fairness_scores.values()) if fairness_scores else 0.0
 
     def _parse_group_string(self, raw):
