@@ -1,5 +1,5 @@
 results/
-
+Recbole/dataset/
 # dont add RecBole dataset
 *.item
 *.inter

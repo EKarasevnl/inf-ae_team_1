@@ -1,7 +1,17 @@
-USER_ID_FIELD: user_id
-ITEM_ID_FIELD: item_id
+USER_ID_FIELD: "user_id"
+ITEM_ID_FIELD: "item_id"
 LABEL_FIELD: label_id
 TIME_FIELD: timestamp
 field_separator: "\t"
+ITEM_PATH: "/home/scur2760/inf-ae_team_1/RecBole/dataset/steam/steam.item"
+INTER_PATH: "/home/scur2760/inf-ae_team_1/RecBole/dataset/steam/steam.inter"
+group_key: "category"
+category_id: "developer:token"
 load_col:
-  inter: [user_id, item_id, timestamp, label_id]
+  inter: [user_id, item_id, timestamp, label_id, product_id]
+
+item_id_field: "id:token"  # configure it based on the .item file
+# field_separator: "\t"
+# load_col:
+#   inter: [user_id, item_id, timestamp]
+# dataset: steam

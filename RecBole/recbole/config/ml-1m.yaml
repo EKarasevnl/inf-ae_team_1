@@ -3,6 +3,10 @@ ITEM_ID_FIELD: item_id
 LABEL_FIELD: label_id
 TIME_FIELD: timestamp
 field_separator: "\t"
+ITEM_PATH: "/home/scur2760/inf-ae_team_1/RecBole/dataset/ml-1m/ml-1m.item"
+INTER_PATH: "/home/scur2760/inf-ae_team_1/RecBole/dataset/ml-1m/ml-1m.inter"
+group_key: "category"
+category_id: "genre:token_seq"
 load_col:
   inter: [user_id, item_id, timestamp, label_id]
   

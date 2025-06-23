@@ -28,11 +28,12 @@ import numpy as np
 from collections import Counter
 from sklearn.metrics import auc as sk_auc
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+from collections import Counter
 
 from recbole.evaluator.utils import _binary_clf_curve
 from recbole.evaluator.base_metric import AbstractMetric, TopkMetric, LossMetric
 from recbole.utils import EvaluatorType
-
+import torch
 # TopK Metrics
 
 
@@ -760,6 +761,204 @@ class GiniIndex(AbstractMetric):
         gini_index = np.sum((2 * idx - num_items - 1) * sorted_count) / total_num
         gini_index /= num_items
         return gini_index
+
+
+
+
+class MMF(AbstractMetric):
+    """
+    Compute the Max-Min Fairness (MMF) of exposure across item groups in recommendation lists.
+
+    For each group (e.g., genre, category), we compute its exposure in recommendations relative
+    to its presence in the overall catalog. MMF evaluates fairness by computing the minimum ratio
+    of exposure share to catalog share across all groups.
+    """
+
+    metric_type = EvaluatorType.RANKING
+    smaller = False
+    metric_need = ["rec.items.original", "data.group_map", "data.group_key", "data.group_weights"]
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.topk = config["topk"]
+
+    def used_info(self, dataobject):
+        # Use original IDs directly from the collector
+        item_matrix = dataobject.get("rec.items.original").numpy()
+        group_map = dataobject.get("data.group_map")  # dict: item_id -> list of groups
+        group_key = dataobject.get("data.group_key")  # e.g., "genre"
+        # group_weights = dataobject.get("data.group_weights")
+        group_weights = None
+        return item_matrix, group_map, group_key, group_weights
+
+    def calculate_metric(self, dataobject):
+        item_matrix, group_map, group_key, group_weights = self.used_info(dataobject)
+        num_users, num_rec_items = item_matrix.shape
+
+        # Flatten top-k items per user
+        metric_dict = {}
+        for k in self.topk:
+            topk_items = item_matrix[:, :k].flatten()
+
+            mmf_score = self.compute_mmf(topk_items, group_key, group_map, group_weights)
+            metric_name = f"mmf-{group_key.lower()}@{k}"
+            metric_dict[metric_name] = round(mmf_score, self.decimal_place)
+        return metric_dict
+
+    def compute_mmf(self, recommended_items, group_key, group_map, group_weights):
+        """
+        Compute MMF from a flat list of recommended item IDs (original IDs).
+        """
+        # Step 1: Compute catalog group distribution
+        catalog_groups = Counter()
+        for raw_groups in group_map.values():
+            groups = self._parse_group_string(raw_groups)
+            catalog_groups.update(groups)
+
+        total_catalog_tags = sum(catalog_groups.values())
+        print(f"total_catalog_tags: {total_catalog_tags}")
+        print(f"catalog group values: {catalog_groups}")
+        if not group_weights:
+            group_weights = {g: c / total_catalog_tags for g, c in catalog_groups.items() if total_catalog_tags > 0}
+        
+        # Step 2: Compute exposure group distribution
+        exposure_groups = Counter()
+
+        print(f"len recommended items: {len(recommended_items)}")
+        for item_id in recommended_items:
+            # item_id is already the original ID, but may need conversion to match group_map keys
+            item_key = int(item_id) if isinstance(item_id, (float, torch.Tensor)) else item_id
+
+            if item_key in group_map:
+                groups = self._parse_group_string(group_map[item_key])
+                exposure_groups.update(groups)
+            else:
+                print(item_key)
+
+        total_exposures = sum(exposure_groups.values())
+
+        if total_exposures == 0:
+            print(f"[MMF] -> RESULT: 0.0000 (No recommendations)")
+            return 0.0
+
+        # Step 3: Compute exposure share and MMF
+        exposure_share = {g: exposure_groups[g] / total_exposures for g in group_weights}
+
+        fairness_scores = {g: (exposure_share.get(g) / group_weights[g]) if group_weights[g] > 0 else 0.0
+                           for g in group_weights}
+
+        print(f"[MMF] -> RESULTS: {fairness_scores.values()} - values")
+
+        mmf_filtered = {group: count for group, count in fairness_scores.items() if count >= 10}
+        print(f"Only categories with 10+ items: {min(mmf_filtered.values())}")
+        return min(fairness_scores.values()) if fairness_scores else 0.0
+
+    def _parse_group_string(self, raw):
+        """
+        Helper to parse a string or list into group list.
+        """
+        if isinstance(raw, list):
+            return raw
+        if isinstance(raw, str):
+            return [s.strip() for s in raw.split("|") if s.strip()]
+        return [str(raw)]
+
+class MMF_10c(AbstractMetric):
+    """
+    Compute the Max-Min Fairness (MMF) of exposure across item groups in recommendation lists.
+
+    For each group (e.g., genre, category), we compute its exposure in recommendations relative
+    to its presence in the overall catalog. MMF evaluates fairness by computing the minimum ratio
+    of exposure share to catalog share across all groups.
+    """
+
+    metric_type = EvaluatorType.RANKING
+    smaller = False
+    metric_need = ["rec.items.original", "data.group_map", "data.group_key", "data.group_weights"]
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.topk = config["topk"]
+
+    def used_info(self, dataobject):
+        # Use original IDs directly from the collector
+        item_matrix = dataobject.get("rec.items.original").numpy()
+        group_map = dataobject.get("data.group_map")  # dict: item_id -> list of groups
+        group_key = dataobject.get("data.group_key")  # e.g., "genre"
+        # group_weights = dataobject.get("data.group_weights")
+        group_weights = None
+        return item_matrix, group_map, group_key, group_weights
+
+    def calculate_metric(self, dataobject):
+        item_matrix, group_map, group_key, group_weights = self.used_info(dataobject)
+        num_users, num_rec_items = item_matrix.shape
+
+        # Flatten top-k items per user
+        metric_dict = {}
+        for k in self.topk:
+            topk_items = item_matrix[:, :k].flatten()
+
+            mmf_score = self.compute_mmf(topk_items, group_key, group_map, group_weights)
+            metric_name = f"mmf_c10-{group_key.lower()}@{k}"
+            metric_dict[metric_name] = round(mmf_score, self.decimal_place)
+        return metric_dict
+
+    def compute_mmf(self, recommended_items, group_key, group_map, group_weights):
+        """
+        Compute MMF from a flat list of recommended item IDs (original IDs).
+        """
+        # Step 1: Compute catalog group distribution
+        catalog_groups = Counter()
+        for raw_groups in group_map.values():
+            groups = self._parse_group_string(raw_groups)
+            catalog_groups.update(groups)
+
+        total_catalog_tags = sum(catalog_groups.values())
+        print(f"total_catalog_tags: {total_catalog_tags}")
+        print(f"catalog group values: {catalog_groups}")
+        if not group_weights:
+            group_weights = {g: c / total_catalog_tags for g, c in catalog_groups.items() if c >= 10}
+        
+        # Step 2: Compute exposure group distribution
+        exposure_groups = Counter()
+
+        print(f"len recommended items: {len(recommended_items)}")
+        for item_id in recommended_items:
+            # item_id is already the original ID, but may need conversion to match group_map keys
+            item_key = int(item_id) if isinstance(item_id, (float, torch.Tensor)) else item_id
+
+            if item_key in group_map:
+                groups = self._parse_group_string(group_map[item_key])
+                exposure_groups.update(groups)
+            else:
+                print(f"{item_key}_c10")
+
+        total_exposures = sum(exposure_groups.values())
+
+        if total_exposures == 0:
+            print(f"[MMF] -> RESULT: 0.0000 (No recommendations)")
+            return 0.0
+
+        # Step 3: Compute exposure share and MMF
+        exposure_share = {g: exposure_groups[g] / total_exposures for g in group_weights}
+
+        fairness_scores = {g: (exposure_share.get(g) / group_weights[g]) if group_weights[g] > 0 else 0.0
+                           for g in group_weights}
+
+        print(f"[MMF] -> RESULTS: {fairness_scores.values()} - values")
+
+        return min(fairness_scores.values()) if fairness_scores else 0.0
+
+    def _parse_group_string(self, raw):
+        """
+        Helper to parse a string or list into group list.
+        """
+        if isinstance(raw, list):
+            return raw
+        if isinstance(raw, str):
+            return [s.strip() for s in raw.split("|") if s.strip()]
+        return [str(raw)]
+
 
 
 class TailPercentage(AbstractMetric):

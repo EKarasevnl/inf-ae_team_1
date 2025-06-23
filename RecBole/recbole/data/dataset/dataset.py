@@ -456,6 +456,7 @@ class Dataset(torch.utils.data.Dataset):
         )
 
         load_col, unload_col = self._get_load_and_unload_col(source)
+
         if load_col == set():
             return None
 
@@ -474,6 +475,8 @@ class Dataset(torch.utils.data.Dataset):
                 ftype = FeatureType(ftype)
             except ValueError:
                 raise ValueError(f"Type {ftype} from field {field} is not supported.")
+
+            print(f"Load col: {load_col} | Unload col: {unload_col}")
             if load_col is not None and field not in load_col:
                 continue
             if unload_col is not None and field in unload_col:
@@ -838,7 +841,7 @@ class Dataset(torch.utils.data.Dataset):
                     feat.drop(feat.index[dropped_feat], inplace=True)
             if field is not None:
                 print("--------------------------------")
-                print("field: ", field)
+                print(f"Field and Name: {field} --- {name} -- {self.uid_field}")
                 print("inter_feat: ", self.inter_feat)
                 print("inter_feat[field]: ", self.inter_feat[field])
                 print("inter_feat[field].isnull(): ", self.inter_feat[field].isnull())
