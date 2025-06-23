@@ -1,9 +1,9 @@
 #!/bin/bash
 
-#SBATCH --partition=gpu_h100
+#SBATCH --partition=gpu_a100
 #SBATCH --gpus=1
-#SBATCH --job-name=steam_LightGCN_auc
-#SBATCH --time=20:00:00
+#SBATCH --job-name=LightGCN_auc_steam
+#SBATCH --time=2:00:00
 #SBATCH --output=./slurm_out/steam/LightGCN_auc.out
 
 #exit if an error occurs
@@ -29,5 +29,7 @@ python run_recbole.py \
   --metrics=AUC \
   --valid_metric=AUC \
   --eval_args="{'mode': {'valid': 'uni100', 'test': 'uni100'}}" \
+  --stopping_step=5 \
+  --epochs=50 \
 
 echo "Done"

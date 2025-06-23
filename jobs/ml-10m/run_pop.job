@@ -2,9 +2,9 @@
 
 #SBATCH --partition=gpu_a100
 #SBATCH --gpus=1
-#SBATCH --job-name=ml10m_test
-#SBATCH --time=04:00:00
-#SBATCH --output=./slurm_out/steam/test_ml10m_%A.out
+#SBATCH --job-name=POP_ml-10m
+#SBATCH --time=2:00:00
+#SBATCH --output=./slurm_out/ml-10m/POP.out
 
 #exit if an error occurs
 set -e
@@ -14,17 +14,18 @@ module load 2024
 module load Miniconda3/24.7.1-0
 module load CUDA/12.6.0
 
-source activate inf-ae
+source activate recbole
 
-cd /home/scur2760/inf-ae_team_1/RecBole
+cd ~/inf-ae_team_1/RecBole/
 
 echo "Running Ranking Metrics"
 
 python run_recbole.py \
-  --model=EASE \
-  --config_files=recbole/config/ml-10m.yaml \
-  --metrics="[\"Recall\", \"MRR\", \"NDCG\", \"Precision\", \"Hit\", \"MMF\", \"GiniIndex\"]" \
-  --topk="[10, 100]" \
+  --model=Pop \
   --dataset=ml-10m \
+  --config_files=recbole/config/ml-10m.yaml \
+  --metrics="[\"Recall\", \"NDCG\", \"PSP\", \"GiniIndex\", \"MMF\", \"MMF_10c\"]" \
+  --topk="[10, 100]" \
+  --valid_metric=Recall@10 \
 
 echo "Done"

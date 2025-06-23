@@ -3,8 +3,8 @@ ITEM_ID_FIELD: "item_id"
 LABEL_FIELD: label_id
 TIME_FIELD: timestamp
 field_separator: "\t"
-ITEM_PATH: "/home/scur2760/inf-ae_team_1/RecBole/dataset/steam/steam.item"
-INTER_PATH: "/home/scur2760/inf-ae_team_1/RecBole/dataset/steam/steam.inter"
+ITEM_PATH: "/home/scur2708/inf-ae_team_1/RecBole/dataset/steam/steam.item"
+INTER_PATH: "/home/scur2708/inf-ae_team_1/RecBole/dataset/steam/steam.inter"
 group_key: "category"
 category_id: "developer:token"
 load_col:

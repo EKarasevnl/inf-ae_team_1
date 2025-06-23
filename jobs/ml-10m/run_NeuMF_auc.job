@@ -2,9 +2,9 @@
 
 #SBATCH --partition=gpu_a100
 #SBATCH --gpus=1
-#SBATCH --job-name=MVAE_auc_steam
-#SBATCH --time=2:00:00
-#SBATCH --output=./slurm_out/steam/MVAE_auc.out
+#SBATCH --job-name=NeuMF_auc_ml-10m
+#SBATCH --time=20:00:00
+#SBATCH --output=./slurm_out/ml-10m/NeuMF_auc.out
 
 #exit if an error occurs
 set -e
@@ -21,13 +21,13 @@ cd ~/inf-ae_team_1/RecBole/
 echo "Running Value Metrics"
 
 python run_recbole.py \
-  --model=MultiVAE \
-  --dataset=steam \
-  --config_files=recbole/config/steam.yaml \
+  --model=NeuMF \
+  --dataset=ml-10m \
+  --config_files=recbole/config/ml-10m.yaml \
   --metrics=AUC \
   --valid_metric=AUC \
   --eval_args="{'mode': {'valid': 'uni100', 'test': 'uni100'}}" \
-  --stopping_step=20 \
-  --epochs=200 \
+  --epochs=20 \
+  --stopping_step=5 \
 
 echo "Done"

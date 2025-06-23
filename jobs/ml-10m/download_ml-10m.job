@@ -2,9 +2,9 @@
 
 #SBATCH --partition=gpu_a100
 #SBATCH --gpus=1
-#SBATCH --job-name=dl_ml-1m
+#SBATCH --job-name=dl_ml-10m
 #SBATCH --time=1:59:00
-#SBATCH --output=./slurm_out/ml-1m/dl_ml-1m.out
+#SBATCH --output=./slurm_out/ml-10m/dl_ml-10m.out
 
 #exit if an error occurs
 set -e
@@ -21,10 +21,13 @@ pip install xgboost
 
 cd ~/RecDatasets/conversion_tools
 
-wget http://files.grouplens.org/datasets/movielens/ml-1m.zip
-unzip ml-1m.zip
+# wget http://files.grouplens.org/datasets/movielens/ml-10m.zip
+# unzip ml-10m.zip
 
-#  duplicate_removal
 python run.py --dataset ml-1m \
     --input_path ml-1m --output_path output_data/ml-1m \
     --convert_inter --convert_item --convert_user
+
+python run.py --dataset ml-10m \
+    --input_path ml-10m --output_path output_data/ml-10m \
+    --convert_inter --convert_item
