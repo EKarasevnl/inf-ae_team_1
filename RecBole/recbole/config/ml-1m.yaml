@@ -9,4 +9,5 @@ group_key: "category"
 category_id: "genre:token_seq"
 load_col:
   inter: [user_id, item_id, timestamp, label_id]
-  
+
+item_id_field: "item_id:token"  # configure it based on the .item file
