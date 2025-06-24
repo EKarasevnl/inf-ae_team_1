@@ -2,7 +2,7 @@
 
 #SBATCH --partition=gpu_a100
 #SBATCH --gpus=1
-#SBATCH --job-name=install_env
+#SBATCH --job-name=rerank
 #SBATCH --time=00:59:00
 #SBATCH --output=./slurm_out/fair_diverse/rerank_%A.out
 
@@ -16,7 +16,8 @@ module load CUDA/12.6.0
 
 # Set variables
 HOME_DIR="/home/$USER"
-DATASET="ml-1m"
+# DATASET="ml-1m"
+DATASET="steam"
 echo "🏡 Using home directory: $HOME_DIR"
 echo "📁 Dataset set to: $DATASET"
 

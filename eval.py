@@ -229,88 +229,85 @@ def evaluate(
         f"[EVALUATE] Final metrics: num_users={metrics['num_users']}, num_interactions={metrics['num_interactions']}"
     )
 
-    # ===================== NEW: Add the file generation block =====================
+
+    # POST PROCESSING FOR FAIR DIVERSE (make it compatible with FairDiverse)
     if POST_PROCESS:
-        print("\n[POST-PROCESS] Starting post-processing and remapping...")
+        print("\n[POST-PROCESS] Starting post-processing and file generation...")
         dataset_name = hyper_params.get("dataset", "unknown_dataset")
 
         # Step 1: Create directories
-        log_dir = f"FairDiverse_data/fairdiverse/recommendation/log/{dataset_name}"
-        data_dir = f"FairDiverse_data/fairdiverse/recommendation/processed_dataset/{dataset_name}"
+        log_dir = f"FairDiverse/fairdiverse/recommendation/log/{dataset_name}"
+        data_dir = f"FairDiverse/fairdiverse/recommendation/processed_dataset/{dataset_name}"
         os.makedirs(log_dir, exist_ok=True)
         os.makedirs(data_dir, exist_ok=True)
         print(f"[POST-PROCESS] Created directories: {log_dir} and {data_dir}")
+        print("[POST-PROCESS] Establishing canonical item count and mappings...")
+        item_map_from_data = data.data.get("item_map_to_category", {})
+        if item_map_from_data:
+            sample_key = next(iter(item_map_from_data.keys()))
+            print(f"[POST-PROCESS] Diagnostic: A sample key from item_map_to_category is of type '{type(sample_key)}' (e.g., {sample_key})")
+        else:
+            print("[POST-PROCESS] WARNING: The 'item_map_to_category' dictionary is empty or missing.")
 
-        # --- Establish the Canonical Item Mapping ---
-        print("[POST-PROCESS] Establishing canonical item mapping...")
-        item_map_from_data = data.data["item_map_to_category"]
 
-        # Create the authoritative, sorted list of original sparse IDs.
-        # The model's internal dense IDs (matrix columns 0, 1, 2...) correspond to this sorted order.
-        all_original_item_ids = sorted([int(k) for k in item_map_from_data.keys()])
-
-        # The number of items the model knows about. This should match the matrix width.
-        num_model_items = len(all_original_item_ids)
+        num_model_items = hyper_params["num_items"]
         if num_model_items != full_ranking_scores.shape[1]:
-            print(f"[POST-PROCESS] WARNING: Mismatch between item count in category map ({num_model_items}) and score matrix width ({full_ranking_scores.shape[1]})")
+            print(f"[POST-PROCESS] CRITICAL WARNING: Mismatch between hyper_params['num_items'] ({num_model_items}) "
+                  f"and score matrix width ({full_ranking_scores.shape[1]}). Using matrix width as final authority.")
+            num_model_items = full_ranking_scores.shape[1]
+        
+        print(f"[POST-PROCESS] Authoritative item count set to: {num_model_items}")
 
-        # Create a mapping from the original sparse ID to the new dense ID (0, 1, 2, ...) for our output files.
-        original_to_new_dense_id_map = {old_id: new_id for new_id, old_id in enumerate(all_original_item_ids)}
-
+        original_to_new_dense_id_map = {i + 1: i for i in range(num_model_items)}
         item_remapping_path = os.path.join(data_dir, "item_id_remapping.json")
         with open(item_remapping_path, 'w') as f:
             json.dump(original_to_new_dense_id_map, f, indent=2)
         print(f"[POST-PROCESS] Saved original-to-new item ID map to: {item_remapping_path}")
-
-        # --- Handle Ranking Scores ---
         print("[POST-PROCESS] Saving ranking scores matrix...")
-        # NO remapping or slicing is needed. The matrix columns are already the dense IDs
-        # that correspond to the sorted list of original IDs. We just save it as is.
-        remapped_ranking_scores = full_ranking_scores
-
         ranking_scores_path = os.path.join(log_dir, "ranking_scores.npz")
-        np.savez_compressed(ranking_scores_path, scores=remapped_ranking_scores)
-        print(f"[POST-PROCESS] Saved ranking scores matrix (shape: {remapped_ranking_scores.shape}) to: {ranking_scores_path}")
-
-        # --- Category and Final iid2pid Remapping ---
+        np.savez_compressed(ranking_scores_path, scores=full_ranking_scores)
+        print(f"[POST-PROCESS] Saved ranking scores matrix (shape: {full_ranking_scores.shape}) to: {ranking_scores_path}")
         print("[POST-PROCESS] Preparing and remapping category mapping files...")
 
-        # First, handle category names (string to int) if necessary
         sample_value = next(iter(item_map_from_data.values()), None)
         category_name_to_id_map = None
         if isinstance(sample_value, str):
             print("[POST-PROCESS] Found string categories. Creating new integer category IDs.")
             all_categories = sorted(list(set(item_map_from_data.values())))
             category_name_to_id_map = {name: i for i, name in enumerate(all_categories)}
-
             category_mapping_path = os.path.join(data_dir, "category_id_mapping.json")
             with open(category_mapping_path, 'w') as f: json.dump(category_name_to_id_map, f, indent=2)
             print(f"[POST-PROCESS] Saved category name-to-ID map to: {category_mapping_path}")
 
-        # Create the final iid2pid.json using the NEW DENSE IDs as keys.
-        # We iterate through our authoritative sorted list to build this map.
         final_remapped_iid2pid = {}
-        for new_dense_id, original_id in enumerate(all_original_item_ids):
+        for dense_id in range(num_model_items):
+            original_id = dense_id + 1
             category_value = item_map_from_data.get(original_id)
+            if category_value is None:
+                category_value = item_map_from_data.get(str(original_id))
 
-            final_category_id = -1 # Default/error value
-            if category_name_to_id_map:
-                final_category_id = category_name_to_id_map.get(category_value, -1)
-            elif isinstance(category_value, (int, float)):
-                final_category_id = int(category_value)
+            final_category_id = -1 
+            if category_value is not None:
+                if category_name_to_id_map:
+                    final_category_id = category_name_to_id_map.get(category_value, -1)
+                elif isinstance(category_value, (int, float)):
+                    final_category_id = int(category_value)
 
-            final_remapped_iid2pid[str(new_dense_id)] = final_category_id
+            final_remapped_iid2pid[str(dense_id)] = final_category_id
 
         iid2pid_path = os.path.join(data_dir, "iid2pid.json")
         with open(iid2pid_path, 'w') as f: json.dump(final_remapped_iid2pid, f)
         print(f"[POST-PROCESS] Saved final remapped item-to-group-ID map to: {iid2pid_path}")
 
-        # --- Create Final Config Files ---
+        # --- Create Config Files ---
         print("[POST-PROCESS] Creating final configuration files...")
         num_users = hyper_params["num_users"]
-        # The correct item_num is the count of items the model was trained on.
-        num_items = num_model_items
-        num_groups = len(set(final_remapped_iid2pid.values())) if final_remapped_iid2pid else 0
+        num_items = num_model_items 
+        num_groups = len(set(val for val in final_remapped_iid2pid.values() if val != -1))
+        
+        # Add a check for num_groups if all items were -1
+        if num_groups == 0 and final_remapped_iid2pid:
+            print("[POST-PROCESS] WARNING: No valid group IDs found for any item. group_num will be 0.")
 
         config_data = { 'user_num': num_users, 'item_num': num_items, 'group_num': num_groups }
 
@@ -319,7 +316,6 @@ def evaluate(
             yaml.dump(config_data, file, sort_keys=False)
         print(f"[POST-PROCESS] Saved data processing config to: {process_config_path}")
 
-        # Save post-processing model config (remains the same)
         postprocessing_model_name = "CPFair"
         config_model = {
             "ranking_store_path": f"{dataset_name}", "model": f"{postprocessing_model_name}",
@@ -327,12 +323,11 @@ def evaluate(
             "topk": [5, 10, 20], "fairness_metrics": ["MinMaxRatio", "MMF", "GINI", "Entropy"],
             "fairness_type": "Exposure"
         }
-        model_config_path = f"FairDiverse_data/fairdiverse/recommendation/postprocessing_without_fairdiverse.yaml"
+        model_config_path = f"FairDiverse/fairdiverse/recommendation/postprocessing_without_fairdiverse.yaml"
         with open(model_config_path, "w") as file:
             yaml.dump(config_model, file, sort_keys=False)
         print(f"[POST-PROCESS] Saved post-processing model config to: {model_config_path}")
-
-    # ===================== END OF BLOCK =====================
+        print("[POST-PROCESS] Post-processing complete.")
 
     return metrics
 
