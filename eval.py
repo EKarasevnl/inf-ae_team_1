@@ -2,14 +2,19 @@ import jax
 import numpy as np
 import jax.numpy as jnp
 from numba import jit, float64
+from scipy.sparse import csr_matrix, save_npz
 
 import numpy as np
+import os
+import json
+import yaml
 
 from hyper_params import hyper_params
 from metrics import compute_mmf
 
 USE_GINI = hyper_params.get("use_gini", False)
 USE_MMF = hyper_params.get("use_mmf", False)
+POST_PROCESS = hyper_params.get("post_process", False)
 
 
 class GiniCoefficient:
@@ -109,6 +114,10 @@ def evaluate(
 
     user_recommendations = {}
 
+    # --- NEW: Create a placeholder for the full scores matrix ---
+    if POST_PROCESS:
+        full_ranking_scores = np.zeros((hyper_params["num_users"], hyper_params["num_items"]), dtype=np.float32)
+
     bsz = 140_000  # These many users
     print(f"[EVALUATE] Processing users in batches of {bsz}")
 
@@ -130,6 +139,10 @@ def evaluate(
         print(
             f"[EVALUATE] Forward pass complete, prediction shape: {np.array(temp_preds).shape}"
         )
+
+        # --- NEW: Store the batch predictions in the full matrix ---
+        if POST_PROCESS:
+            full_ranking_scores[i:batch_end] = np.array(temp_preds)
 
         print(f"[EVALUATE] Evaluating batch {i} to {batch_end-1}")
         metrics, temp_preds, temp_y, user_recommendations_batch = evaluate_batch(
@@ -216,6 +229,111 @@ def evaluate(
         f"[EVALUATE] Final metrics: num_users={metrics['num_users']}, num_interactions={metrics['num_interactions']}"
     )
 
+    # ===================== NEW: Add the file generation block =====================
+    if POST_PROCESS:
+        print("\n[POST-PROCESS] Starting post-processing and remapping...")
+        dataset_name = hyper_params.get("dataset", "unknown_dataset")
+
+        # Step 1: Create directories
+        log_dir = f"FairDiverse_data/fairdiverse/recommendation/log/{dataset_name}"
+        data_dir = f"FairDiverse_data/fairdiverse/recommendation/processed_dataset/{dataset_name}"
+        os.makedirs(log_dir, exist_ok=True)
+        os.makedirs(data_dir, exist_ok=True)
+        print(f"[POST-PROCESS] Created directories: {log_dir} and {data_dir}")
+
+        # --- Establish the Canonical Item Mapping ---
+        print("[POST-PROCESS] Establishing canonical item mapping...")
+        item_map_from_data = data.data["item_map_to_category"]
+
+        # Create the authoritative, sorted list of original sparse IDs.
+        # The model's internal dense IDs (matrix columns 0, 1, 2...) correspond to this sorted order.
+        all_original_item_ids = sorted([int(k) for k in item_map_from_data.keys()])
+
+        # The number of items the model knows about. This should match the matrix width.
+        num_model_items = len(all_original_item_ids)
+        if num_model_items != full_ranking_scores.shape[1]:
+            print(f"[POST-PROCESS] WARNING: Mismatch between item count in category map ({num_model_items}) and score matrix width ({full_ranking_scores.shape[1]})")
+
+        # Create a mapping from the original sparse ID to the new dense ID (0, 1, 2, ...) for our output files.
+        original_to_new_dense_id_map = {old_id: new_id for new_id, old_id in enumerate(all_original_item_ids)}
+
+        item_remapping_path = os.path.join(data_dir, "item_id_remapping.json")
+        with open(item_remapping_path, 'w') as f:
+            json.dump(original_to_new_dense_id_map, f, indent=2)
+        print(f"[POST-PROCESS] Saved original-to-new item ID map to: {item_remapping_path}")
+
+        # --- Handle Ranking Scores ---
+        print("[POST-PROCESS] Saving ranking scores matrix...")
+        # NO remapping or slicing is needed. The matrix columns are already the dense IDs
+        # that correspond to the sorted list of original IDs. We just save it as is.
+        remapped_ranking_scores = full_ranking_scores
+
+        ranking_scores_path = os.path.join(log_dir, "ranking_scores.npz")
+        np.savez_compressed(ranking_scores_path, scores=remapped_ranking_scores)
+        print(f"[POST-PROCESS] Saved ranking scores matrix (shape: {remapped_ranking_scores.shape}) to: {ranking_scores_path}")
+
+        # --- Category and Final iid2pid Remapping ---
+        print("[POST-PROCESS] Preparing and remapping category mapping files...")
+
+        # First, handle category names (string to int) if necessary
+        sample_value = next(iter(item_map_from_data.values()), None)
+        category_name_to_id_map = None
+        if isinstance(sample_value, str):
+            print("[POST-PROCESS] Found string categories. Creating new integer category IDs.")
+            all_categories = sorted(list(set(item_map_from_data.values())))
+            category_name_to_id_map = {name: i for i, name in enumerate(all_categories)}
+
+            category_mapping_path = os.path.join(data_dir, "category_id_mapping.json")
+            with open(category_mapping_path, 'w') as f: json.dump(category_name_to_id_map, f, indent=2)
+            print(f"[POST-PROCESS] Saved category name-to-ID map to: {category_mapping_path}")
+
+        # Create the final iid2pid.json using the NEW DENSE IDs as keys.
+        # We iterate through our authoritative sorted list to build this map.
+        final_remapped_iid2pid = {}
+        for new_dense_id, original_id in enumerate(all_original_item_ids):
+            category_value = item_map_from_data.get(original_id)
+
+            final_category_id = -1 # Default/error value
+            if category_name_to_id_map:
+                final_category_id = category_name_to_id_map.get(category_value, -1)
+            elif isinstance(category_value, (int, float)):
+                final_category_id = int(category_value)
+
+            final_remapped_iid2pid[str(new_dense_id)] = final_category_id
+
+        iid2pid_path = os.path.join(data_dir, "iid2pid.json")
+        with open(iid2pid_path, 'w') as f: json.dump(final_remapped_iid2pid, f)
+        print(f"[POST-PROCESS] Saved final remapped item-to-group-ID map to: {iid2pid_path}")
+
+        # --- Create Final Config Files ---
+        print("[POST-PROCESS] Creating final configuration files...")
+        num_users = hyper_params["num_users"]
+        # The correct item_num is the count of items the model was trained on.
+        num_items = num_model_items
+        num_groups = len(set(final_remapped_iid2pid.values())) if final_remapped_iid2pid else 0
+
+        config_data = { 'user_num': num_users, 'item_num': num_items, 'group_num': num_groups }
+
+        process_config_path = os.path.join(data_dir, "process_config.yaml")
+        with open(process_config_path, "w") as file:
+            yaml.dump(config_data, file, sort_keys=False)
+        print(f"[POST-PROCESS] Saved data processing config to: {process_config_path}")
+
+        # Save post-processing model config (remains the same)
+        postprocessing_model_name = "CPFair"
+        config_model = {
+            "ranking_store_path": f"{dataset_name}", "model": f"{postprocessing_model_name}",
+            "fair-rank": True, "log_name": f"{postprocessing_model_name}_without_fairdiverse_{dataset_name}",
+            "topk": [5, 10, 20], "fairness_metrics": ["MinMaxRatio", "MMF", "GINI", "Entropy"],
+            "fairness_type": "Exposure"
+        }
+        model_config_path = f"FairDiverse_data/fairdiverse/recommendation/postprocessing_without_fairdiverse.yaml"
+        with open(model_config_path, "w") as file:
+            yaml.dump(config_model, file, sort_keys=False)
+        print(f"[POST-PROCESS] Saved post-processing model config to: {model_config_path}")
+
+    # ===================== END OF BLOCK =====================
+
     return metrics
 
 
@@ -276,7 +394,7 @@ def evaluate_batch(
 
         for b in range(len(logits)):
             
-            if USE_GINI or USE_MMF:
+            if USE_GINI or USE_MMF or POST_PROCESS:
                 # Update item exposures for this batch at this k
                 for item_idx in indices[b][:k]:
 
@@ -338,7 +456,8 @@ def evaluate_batch(
     print(
         f"[EVAL_BATCH] Batch evaluation complete, returning {len(temp_preds)} predictions"
     )
-    return metrics, temp_preds, temp_y, user_recommendations if USE_GINI else {}
+    # return metrics, temp_preds, temp_y, user_recommendations if USE_GINI else {}
+    return metrics, temp_preds, temp_y, user_recommendations if (USE_GINI or USE_MMF or POST_PROCESS) else {}
 
 
 @jit(float64(float64[:], float64[:]))

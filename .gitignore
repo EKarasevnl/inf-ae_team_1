@@ -1,5 +1,6 @@
 results/
 slurm_out/
+slurm_out_new/
 log_tensorboard/
 saved/
 data/
