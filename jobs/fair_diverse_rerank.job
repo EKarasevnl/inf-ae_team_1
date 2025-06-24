@@ -1,0 +1,36 @@
+#!/bin/bash
+
+#SBATCH --partition=gpu_a100
+#SBATCH --gpus=1
+#SBATCH --job-name=install_env
+#SBATCH --time=00:59:00
+#SBATCH --output=./slurm_out/fair_diverse/rerank_%A.out
+
+
+echo "🚀 Job started at $(date)"
+
+module purge
+module load 2024
+module load Miniconda3/24.7.1-0
+module load CUDA/12.6.0
+
+# Set variables
+HOME_DIR="/home/$USER"
+DATASET="ml-1m"
+echo "🏡 Using home directory: $HOME_DIR"
+echo "📁 Dataset set to: $DATASET"
+
+# Activate conda environment
+source activate fair_diverse
+echo "✅ Environment activated!"
+
+# Change to project directory
+cd "$HOME_DIR/inf-ae_team_1/FairDiverse/fairdiverse"
+echo "📂 Changed to project directory: $(pwd)"
+
+# Run main.py with arguments
+echo "🧠 Running FairDiverse post-processing task..."
+python main.py --task recommendation --stage post-processing --dataset "$DATASET" --train_config_file postprocessing_without_fairdiverse.yaml
+echo "🎉 Post-processing completed!"
+
+echo "✅ Script finished successfully at $(date) ✨"

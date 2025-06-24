@@ -1,12 +1,16 @@
+*.pyc
+FairDiverse/
 results/
 slurm_out/
+slurm_out_new/
 log_tensorboard/
 saved/
 data/
+out/
 
-# dont add RecBole dataset
-*.item
-*.inter
+# # dont add RecBole dataset
+# *.item
+# *.inter
 *.user
 
 # Byte-compiled / optimized / DLL files

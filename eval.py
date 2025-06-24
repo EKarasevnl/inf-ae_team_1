@@ -2,6 +2,7 @@ import jax
 import numpy as np
 import jax.numpy as jnp
 from numba import jit, float64
+from scipy.sparse import csr_matrix, save_npz
 
 import numpy as np
 import os
@@ -228,92 +229,110 @@ def evaluate(
         f"[EVALUATE] Final metrics: num_users={metrics['num_users']}, num_interactions={metrics['num_interactions']}"
     )
 
-     # --- NEW: Add the file generation block ---
+    # ===================== NEW: Add the file generation block =====================
     if POST_PROCESS:
-        print("\n[POST-PROCESS] Generating files for FairDiverse...")
+        print("\n[POST-PROCESS] Starting post-processing and remapping...")
         dataset_name = hyper_params.get("dataset", "unknown_dataset")
         
         # Step 1: Create directories
-        log_dir = f"FairDiverse/recommendation/log/{dataset_name}"
-        data_dir = f"FairDiverse/recommendation/processed_dataset/{dataset_name}"
+        log_dir = f"FairDiverse/fairdiverse/recommendation/log/{dataset_name}"
+        data_dir = f"FairDiverse/fairdiverse/recommendation/processed_dataset/{dataset_name}"
         os.makedirs(log_dir, exist_ok=True)
         os.makedirs(data_dir, exist_ok=True)
         print(f"[POST-PROCESS] Created directories: {log_dir} and {data_dir}")
 
-        # Step 2: Save ranking_scores.npz
-        ranking_scores_path = os.path.join(log_dir, "ranking_scores.npz")
-        np.savez_compressed(ranking_scores_path, scores=full_ranking_scores)
-        # print shape and some small snippets of the matrix
-        print(f"[POST-PROCESS] Ranking scores matrix shape: {full_ranking_scores.shape}")
-        print(f"[POST-PROCESS] Sample of ranking scores for first 5 users:")
-        for i in range(min(5, full_ranking_scores.shape[0])):
-            print(f"User {i}: {full_ranking_scores[i, :10]}...")
-        print(f"[POST-PROCESS] Saved ranking scores matrix to: {ranking_scores_path}")
-
-        # Step 3: Save iid2pid.json
-        # The keys are remapped item IDs, which is correct. Convert keys to string for JSON.
-        iid2pid = {str(k): str(v) for k, v in data.data["item_map_to_category"].items()}
-        iid2pid_path = os.path.join(data_dir, "iid2pid.json")
-        with open(iid2pid_path, 'w') as f:
-            json.dump(iid2pid, f)
-        print(f"[POST-PROCESS] Saved item-to-group mapping to: {iid2pid_path}")
+        # --- Establish the Canonical Item Mapping ---
+        print("[POST-PROCESS] Establishing canonical item mapping...")
+        item_map_from_data = data.data["item_map_to_category"]
         
-        # Step 4: Save process_config.yaml
-        # config_data = {
-        #     'user_id': 'user_id:token', # column name of the user ID
-        #     'item_id': 'item_id:token', # column name of the item ID, in this case we recommend movies
-        #     'group_id': 'first_class:token', # column name of the groups to be considered for fairness, in this case we consider the genres of the movie
-        #     'label_id': 'rating:float', # column name for the label, indicating the interest of the user in the item
-        #     'timestamp': 'timestamp:float', # column name for the timestamp of when the interaction happened
-        #     'text_id': 'movie_title:token_seq', # column name for the text ID of the item (e.g. movie name, book title)
-        #     'label_threshold': 3, # if label exceed the value will be regarded as 1, otherwise, it will be accounted into 0 
-        #     # --> we consider a positive recommendation if a user rated a movie with a value higher than 3
-        #     'item_domain': 'movie', # description of the dataset domain (e.g. movie, music, jobs etc.)
-        #     'item_val': 0, # keep items which have at least this number of interactions
-        #     'user_val': 0, # keep users who have at least this number of interactions
-        #     'group_val': 5, # keep groups which have at least this number of interactions 
-        #     'group_aggregation_threshold': 15,  ##If the number of items owned by a group is less than this value, 
-        #     # those groups will be merged into a single group called the 'infrequent group'. 
-        #     # For example, Fantasy, War, Musician, ... will be merged into one group called 'infrequent group',
-        #     # as the number of items belonging to this group is under the threshold.
-        #     'sample_size': 1.0, ###Sample ratio of the whole dataset to form a new subset dataset for training.
-        #     'valid_ratio': 0.1, ### Samples to be used for validation
-        #     'test_ratio': 0.1, ### Samples to be used for test
-        #     'reprocess': True, ##do you need to re-process the dataset according to your personalized requirements
-        #     'sample_num': 350, # needs to be higher than the max number of positive samples per user
-        #     'history_length': 20, # length of historical interactions of a user - [item_1, item_2, item_3, ...] to be considered 
-        # }
+        # Create the authoritative, sorted list of original sparse IDs.
+        # The model's internal dense IDs (matrix columns 0, 1, 2...) correspond to this sorted order.
+        all_original_item_ids = sorted([int(k) for k in item_map_from_data.keys()])
+        
+        # The number of items the model knows about. This should match the matrix width.
+        num_model_items = len(all_original_item_ids)
+        if num_model_items != full_ranking_scores.shape[1]:
+            print(f"[POST-PROCESS] WARNING: Mismatch between item count in category map ({num_model_items}) and score matrix width ({full_ranking_scores.shape[1]})")
+
+        # Create a mapping from the original sparse ID to the new dense ID (0, 1, 2, ...) for our output files.
+        original_to_new_dense_id_map = {old_id: new_id for new_id, old_id in enumerate(all_original_item_ids)}
+        
+        item_remapping_path = os.path.join(data_dir, "item_id_remapping.json")
+        with open(item_remapping_path, 'w') as f:
+            json.dump(original_to_new_dense_id_map, f, indent=2)
+        print(f"[POST-PROCESS] Saved original-to-new item ID map to: {item_remapping_path}")
+
+        # --- Handle Ranking Scores ---
+        print("[POST-PROCESS] Saving ranking scores matrix...")
+        # NO remapping or slicing is needed. The matrix columns are already the dense IDs
+        # that correspond to the sorted list of original IDs. We just save it as is.
+        remapped_ranking_scores = full_ranking_scores
+        
+        ranking_scores_path = os.path.join(log_dir, "ranking_scores.npz")
+        np.savez_compressed(ranking_scores_path, scores=remapped_ranking_scores)
+        print(f"[POST-PROCESS] Saved ranking scores matrix (shape: {remapped_ranking_scores.shape}) to: {ranking_scores_path}")
+
+        # --- Category and Final iid2pid Remapping ---
+        print("[POST-PROCESS] Preparing and remapping category mapping files...")
+        
+        # First, handle category names (string to int) if necessary
+        sample_value = next(iter(item_map_from_data.values()), None)
+        category_name_to_id_map = None
+        if isinstance(sample_value, str):
+            print("[POST-PROCESS] Found string categories. Creating new integer category IDs.")
+            all_categories = sorted(list(set(item_map_from_data.values())))
+            category_name_to_id_map = {name: i for i, name in enumerate(all_categories)}
+            
+            category_mapping_path = os.path.join(data_dir, "category_id_mapping.json")
+            with open(category_mapping_path, 'w') as f: json.dump(category_name_to_id_map, f, indent=2)
+            print(f"[POST-PROCESS] Saved category name-to-ID map to: {category_mapping_path}")
+        
+        # Create the final iid2pid.json using the NEW DENSE IDs as keys.
+        # We iterate through our authoritative sorted list to build this map.
+        final_remapped_iid2pid = {}
+        for new_dense_id, original_id in enumerate(all_original_item_ids):
+            category_value = item_map_from_data.get(original_id)
+            
+            final_category_id = -1 # Default/error value
+            if category_name_to_id_map:
+                final_category_id = category_name_to_id_map.get(category_value, -1)
+            elif isinstance(category_value, (int, float)):
+                final_category_id = int(category_value)
+
+            final_remapped_iid2pid[str(new_dense_id)] = final_category_id
+        
+        iid2pid_path = os.path.join(data_dir, "iid2pid.json")
+        with open(iid2pid_path, 'w') as f: json.dump(final_remapped_iid2pid, f)
+        print(f"[POST-PROCESS] Saved final remapped item-to-group-ID map to: {iid2pid_path}")
+
+        # --- Create Final Config Files ---
+        print("[POST-PROCESS] Creating final configuration files...")
         num_users = hyper_params["num_users"]
-        num_items = hyper_params["num_items"]
-        num_groups = len(set(iid2pid.values()))
-        config_data = {
-            'user_num': num_users,
-            'item_num': num_items,
-            'group_num': num_groups
-        }
+        # The correct item_num is the count of items the model was trained on.
+        num_items = num_model_items
+        num_groups = len(set(final_remapped_iid2pid.values())) if final_remapped_iid2pid else 0
+
+        config_data = { 'user_num': num_users, 'item_num': num_items, 'group_num': num_groups }
         
         process_config_path = os.path.join(data_dir, "process_config.yaml")
         with open(process_config_path, "w") as file:
             yaml.dump(config_data, file, sort_keys=False)
         print(f"[POST-PROCESS] Saved data processing config to: {process_config_path}")
 
-        # Step 5: Save post-processing model config
+        # Save post-processing model config (remains the same)
         postprocessing_model_name = "CPFair"
         config_model = {
-            "ranking_store_path": f"{dataset_name}",
-            "model": f"{postprocessing_model_name}",
-            "fair-rank": True,
-            "log_name": f"{postprocessing_model_name}_without_fairdiverse_{dataset_name}",
-            "topk": [5, 10, 20],
-            "fairness_metrics": ["MinMaxRatio", "MMF", "GINI", "Entropy"],
+            "ranking_store_path": f"{dataset_name}", "model": f"{postprocessing_model_name}",
+            "fair-rank": True, "log_name": f"{postprocessing_model_name}_without_fairdiverse_{dataset_name}",
+            "topk": [5, 10, 20], "fairness_metrics": ["MinMaxRatio", "MMF", "GINI", "Entropy"],
             "fairness_type": "Exposure"
         }
-        model_config_path = f"FairDiverse/recommendation/postprocessing_without_fairdiverse.yaml"
+        model_config_path = f"FairDiverse/fairdiverse/recommendation/postprocessing_without_fairdiverse.yaml"
         with open(model_config_path, "w") as file:
             yaml.dump(config_model, file, sort_keys=False)
         print(f"[POST-PROCESS] Saved post-processing model config to: {model_config_path}")
 
-
+    # ===================== END OF BLOCK =====================
     return metrics
 
 

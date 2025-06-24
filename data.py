@@ -219,10 +219,23 @@ def load_raw_dataset(
         for genre_list in item_df[category_id].fillna("[Nan]")
         for genre in genre_list.strip("[]").split(", ")
     ]
+
     unique_genres_list = list(set(all_genres))
-    item_map_to_category = dict(
-        zip(item_df[item_id].astype(int), item_df[category_id])
-    )
+
+
+    # item_map_to_category = dict(
+    #     zip(item_df[item_id].astype(int), item_df[category_id])
+    # )
+
+    # Create a temporary lookup from the full item dataframe.
+    temp_id_to_cat_lookup = dict(zip(item_df[item_id].astype(int), item_df[category_id]))
+    # Build the final, correct map by iterating over the keys of `item_map`
+    # (the items that actually have interactions and are in the model).
+    item_map_to_category = {
+        original_id: temp_id_to_cat_lookup[original_id]
+        for original_id in item_map.keys()
+        if original_id in temp_id_to_cat_lookup
+    }
 
     def select(data, index, index_val):
         print(f"Selecting data with index value {index_val}")
