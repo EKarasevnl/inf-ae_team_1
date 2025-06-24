@@ -251,6 +251,33 @@ class PSP(TopkMetric):
     def __init__(self, config):
         super().__init__(config)
 
+    @staticmethod
+    def _build_prop_vector(counter, rec_items, labels, A=0.55, B=1.5):
+        """
+        Return a 1-D numpy array `prop` with φ(i) for every item-ID that may
+        appear in *any* lookup (training counts, recommendations, or labels).
+        """
+        # ❶ Find the largest ID we will ever index
+        max_seen_id = max(
+            np.max(rec_items),                 # IDs in the recommended list
+            max(counter),                      # IDs that have training counts
+            max(max(l) if l else -1 for l in labels)  # IDs in ground-truth lists
+        )
+        
+        # ❷ Allocate and default to φ(i)=1.0   (safe fallback for unseen IDs)
+        prop = np.ones(max_seen_id + 1, dtype=np.float32)
+        
+        # ❸ Insert counts where we actually have them
+        counts = np.zeros_like(prop)
+        for item_id, c in counter.items():
+            counts[item_id] = c
+        
+        N = counts.sum()
+        C = (np.log(N) - 1) * B**A
+        seen_mask = counts > 0
+        prop[seen_mask] = 1.0 / (1.0 + C * np.exp(-A * np.log(counts[seen_mask] + B)))
+        return prop
+
     def calculate_metric(self, dataobject):
         # 1) hits matrix and |R(u)|
         pos_index, pos_len = self.used_info(dataobject)        # [n_users, max_k]
@@ -258,15 +285,14 @@ class PSP(TopkMetric):
 
         # 2) propensity values φ(i)
         counter   = dataobject["data.count_items"]
-        num_items = max(counter) + 1
-        counts    = np.zeros(num_items, dtype=np.float32)
-        for i, c in counter.items():
-            counts[i] = c
-
         A, B = 0.55, 1.5
-        N    = counts.sum()
-        C    = (np.log(N) - 1) * B**A
-        prop = 1.0 / (1.0 + C * np.exp(-A * np.log(counts + B)))   # φ(i)
+
+        # we already have rec_items a few lines below; pull it up first
+        rec_items = dataobject["rec.items"].numpy()          # [n_users, max_k]
+        labels    = dataobject["rec.label"]                  # list[list[int]]
+        counter   = dataobject["data.count_items"]           # dict{ item_id : count }
+
+        prop = PSP._build_prop_vector(counter, rec_items, labels)
 
         # 3) numerator: weighted hits, duplicates counted once
         rec_items = dataobject["rec.items"].numpy()                # [n_users, max_k]

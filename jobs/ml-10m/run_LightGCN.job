@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --partition=gpu_a100
+#SBATCH --partition=gpu_h100
 #SBATCH --gpus=1
 #SBATCH --job-name=LightGCN_ml-10m
 #SBATCH --time=20:00:00
@@ -30,6 +30,6 @@ python run_recbole.py \
   --topk="[10, 100]" \
   --valid_metric=Recall@10 \
   --stopping_step=5 \
-  --epochs=50 \
+  --epochs=40 \
 
 echo "Done"
