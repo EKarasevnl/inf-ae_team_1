@@ -2,8 +2,8 @@
 
 #SBATCH --partition=gpu_h100
 #SBATCH --gpus=1
-#SBATCH --job-name=steam_MVAE
-#SBATCH --time=20:00:00
+#SBATCH --job-name=MVAE_steam
+#SBATCH --time=2:00:00
 #SBATCH --output=./slurm_out/steam/MVAE.out
 
 #exit if an error occurs
@@ -24,7 +24,10 @@ python run_recbole.py \
   --model=MultiVAE \
   --dataset=steam \
   --config_files=recbole/config/steam.yaml \
-  --metrics="[\"Recall\", \"MRR\", \"NDCG\", \"Precision\", \"Hit\", \"PSP\"]" \
-  --topk="[10, 100]"
+  --metrics="[\"Recall\", \"NDCG\", \"PSP\", \"GiniIndex\", \"MMF\", \"MMF_10c\"]" \
+  --topk="[10, 20]" \
+  --valid_metric=NDCG@20 \
+  --stopping_step=20 \
+  --epochs=200 \
 
 echo "Done"

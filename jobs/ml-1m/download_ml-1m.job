@@ -1,0 +1,30 @@
+#!/bin/bash
+
+#SBATCH --partition=gpu_a100
+#SBATCH --gpus=1
+#SBATCH --job-name=dl_ml-1m
+#SBATCH --time=1:59:00
+#SBATCH --output=./slurm_out/ml-1m/dl_ml-1m.out
+
+#exit if an error occurs
+set -e
+
+module purge
+module load 2024
+module load Miniconda3/24.7.1-0
+module load CUDA/12.6.0
+
+source activate recbole
+
+pip install lightgbm
+pip install xgboost
+
+cd ~/RecDatasets/conversion_tools
+
+wget http://files.grouplens.org/datasets/movielens/ml-1m.zip
+unzip ml-1m.zip
+
+#  duplicate_removal
+python run.py --dataset ml-1m \
+    --input_path ml-1m --output_path output_data/ml-1m \
+    --convert_inter --convert_item --convert_user
