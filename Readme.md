@@ -51,9 +51,11 @@ This repository builds on the original ∞-AE codebase with several improvements
 - **What:** The evaluation pipeline now computes GINI and MMF metrics to measure fairness and diversity in recommendations.
 - **How:** Set `use_gini` and/or `use_mmf` to `True` in `hyper_params.py`.
 
-### 4. RecBole Baselines with Fairness Metrics [TODO]
+### 4. RecBole Baselines with Fairness Metrics
 - **What:** RecBole baseline scripts are updated to also compute GINI and MMF metrics for fair comparison.
-- **How:** Use the job scripts in the `jobs/` directory, especially `jobs/run_recbole.job`, to run RecBole baselines with the new metrics. [TODO] Point to the specific jobs
+- **How:**
+  - **First, build the dataset:** Run `jobs/build_dataset.job` to convert your processed hdf5/npz data into `.item` and `.inter` files.
+  - **Then, run experiments:** Use the job scripts in `jobs/{dataset}` (ml-1m, ml-10m, steam) and `jobs/experiments/` to run RecBole baselines and experiments with the new metrics. For standard RecBole runs, you can also use `jobs/run_recbole.job`.
 
 ### 5. In-Processing Regularization for Fairness/Diversity
 - **What:** The model now supports in-processing regularization for fairness/diversity via `mmf_reg` and `gini_reg`.
