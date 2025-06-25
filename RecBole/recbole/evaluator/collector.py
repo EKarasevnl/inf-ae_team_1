@@ -14,6 +14,7 @@ recbole.evaluator.collector
 
 from recbole.evaluator.register import Register
 import torch
+import pandas as pd
 import copy
 
 
@@ -75,6 +76,58 @@ class Collector(object):
         self.full = "full" in config["eval_args"]["mode"]
         self.topk = self.config["topk"]
         self.device = self.config["device"]
+        
+
+        self.item_df = pd.read_csv(
+            self.config["ITEM_PATH"],
+            delimiter="\t",
+            header=0,
+            engine="python",
+            encoding="utf-8",
+            on_bad_lines="warn",
+        )
+
+        self.inter_df = pd.read_csv(self.config["INTER_PATH"], delimiter='\t', header=0, engine='python', encoding='latin-1')
+
+        self.item_df_id = self.item_df[self.config["item_id_field"]].unique()
+        print(f"Num unique ids in inter_item_id: {self.item_df_id.size} || {self.item_df_id}")
+        
+        self.item_map_to_category = dict(
+                zip(self.item_df[self.config["item_id_field"]].astype(int), self.item_df[self.config["category_id"]])
+                )
+
+    def _map_internal_to_original_ids(self, internal_ids, dataset):
+        """Map internal item IDs back to original item IDs.
+        
+        Args:
+            internal_ids (torch.Tensor): Tensor of internal item IDs
+            dataset: Dataset object containing the field2id_token mapping
+            
+        Returns:
+            torch.Tensor: Tensor of original item IDs as integers
+        """
+        # Get the item field name
+        item_field = dataset.iid_field
+        
+        # Use field2id_token to map internal IDs to original tokens
+        # field2id_token[item_field] contains the mapping from internal ID to original token
+        id_to_token = dataset.field2id_token[item_field]
+        
+        # Convert internal IDs to original IDs
+        original_ids = []
+        for idx in internal_ids.flatten():
+            if idx.item() < len(id_to_token):
+                original_token = id_to_token[idx.item()]
+                # Skip special tokens like [PAD]
+                if original_token.startswith('[') and original_token.endswith(']'):
+                    original_ids.append(0)
+                else:
+                    original_id = int(float(original_token))
+                    original_ids.append(original_id)
+            else:
+                original_ids.append(0)  # Fallback for invalid indices
+        
+        return torch.tensor(original_ids, dtype=torch.long, device=internal_ids.device).reshape(internal_ids.shape)
 
     def data_collect(self, train_data):
         """Collect the evaluation resource from training data.
@@ -82,6 +135,9 @@ class Collector(object):
             train_data (AbstractDataLoader): the training dataloader which contains the training data.
 
         """
+        # Store dataset reference for ID mapping
+        self._dataset_ref = train_data.dataset
+        
         if self.register.need("data.num_items"):
             item_id = self.config["ITEM_ID_FIELD"]
             self.data_struct.set("data.num_items", train_data.dataset.num(item_id))
@@ -149,15 +205,22 @@ class Collector(object):
             positive_i(Torch.Tensor): the positive item id for each user.
         """
         if self.register.need("rec.items"):
-
             # get topk
             _, topk_idx = torch.topk(
                 scores_tensor, max(self.topk), dim=-1
             )  # n_users x k
+
+            # Map internal IDs to original IDs
+            topk_original_ids = self._map_internal_to_original_ids(topk_idx, self._dataset_ref)
+
+            # Store both internal indices and original IDs
+            self.data_struct.update_tensor("rec.items.internal", topk_idx)
+            self.data_struct.update_tensor("rec.items.original", topk_original_ids)
+            
+            # For backward compatibility
             self.data_struct.update_tensor("rec.items", topk_idx)
-
+        
         if self.register.need("rec.topk"):
-
             _, topk_idx = torch.topk(
                 scores_tensor, max(self.topk), dim=-1
             )  # n_users x k
@@ -169,7 +232,6 @@ class Collector(object):
             self.data_struct.update_tensor("rec.topk", result)
 
         if self.register.need("rec.meanrank"):
-
             desc_scores, desc_index = torch.sort(scores_tensor, dim=-1, descending=True)
 
             # get the index of positive items in the ranking list
@@ -188,7 +250,6 @@ class Collector(object):
             self.data_struct.update_tensor("rec.meanrank", result)
 
         if self.register.need("rec.score"):
-
             self.data_struct.update_tensor("rec.score", scores_tensor)
 
         if self.register.need("data.label"):
@@ -196,13 +257,108 @@ class Collector(object):
             self.data_struct.update_tensor(
                 "data.label", interaction[self.label_field].to(self.device)
             )
+        
+        if self.register.need("data.group_key"):
+            self.data_struct.set("data.group_key", self.config["group_key"])
 
+        if self.register.need("data.group_map"):
+            self.data_struct.set("data.group_map", self.item_map_to_category)
+        
+        if self.register.need("inter_id"):
+            self.data_struct.set("inter_id", self.item_df_id)
+
+        # if self.register.need("rec.label"):
+        #     # Get global user ID for each row
+        #     batch_user_id = interaction[self.config["USER_ID_FIELD"]].tolist()
+        #     true_pos = {u: [] for u in batch_user_id}
+        #     for u, i in zip(positive_u.tolist(), positive_i.tolist()):
+        #         global_u = batch_user_id[u]
+        #         true_pos[global_u].append(i)
+
+        #     if "rec.label" not in self.data_struct:
+        #         # One list per total user (known from training)
+        #         num_total_users = self.data_struct.get("data.num_users")
+        #         all_true_pos = [[] for _ in range(num_total_users)]
+        #         for u, items in true_pos.items():
+        #             all_true_pos[u] = items
+        #         self.data_struct.set("rec.label", all_true_pos)
+        #     else:
+        #         existing = self.data_struct.get("rec.label")
+        #         for u, items in true_pos.items():
+        #             existing[u].extend(items)
+        #         self.data_struct.set("rec.label", existing)
+
+          # ------------------------------------------------------------------
+        # Store each user's ground-truth items so metrics like PSP can
+        # compute the per-user denominator (mPSP).  We build one list per
+        # *global* user ID and keep extending it batch-by-batch.
+        # ------------------------------------------------------------------
         if self.register.need("rec.label"):
-            num_users = scores_tensor.size(0)
-            true_pos = [[] for _ in range(num_users)]
-            for u, i in zip(positive_u.tolist(), positive_i.tolist()):
-                true_pos[u].append(i)
-            self.data_struct.set("rec.label", true_pos)
+
+            # ❶ Lazily create the master list-of-lists only once
+            if "rec.label" not in self.data_struct:
+                num_total_users = self.data_struct.get("data.num_users")
+                self.data_struct.set("rec.label", [[] for _ in range(num_total_users)])
+
+            rec_label = self.data_struct.get("rec.label")
+
+            # ❷ Map local batch rows to global user IDs
+            batch_user_id = interaction[self.config["USER_ID_FIELD"]].tolist()
+
+            # ❸ Append the positive item of *every* user in this batch
+            for local_u, item_id in zip(positive_u.tolist(), positive_i.tolist()):
+                global_u = batch_user_id[local_u]
+                rec_label[global_u].append(int(item_id))     # make sure it's plain int
+
+            # ❹ Put it back (lists are mutable, but stay explicit)
+            self.data_struct.set("rec.label", rec_label)
+
+
+        # if self.register.need("rec.label"):
+        #     # Get global user ID for each row
+        #     batch_user_id = interaction[self.config["USER_ID_FIELD"]].tolist()
+        #     true_pos = {u: [] for u in batch_user_id}
+        #     for u, i in zip(positive_u.tolist(), positive_i.tolist()):
+        #         global_u = batch_user_id[u]
+        #         true_pos[global_u].append(i)
+
+        #     if "rec.label" not in self.data_struct:
+        #         # One list per total user (known from training)
+        #         num_total_users = self.data_struct.get("data.num_users")
+        #         all_true_pos = [[] for _ in range(num_total_users)]
+        #         for u, items in true_pos.items():
+        #             all_true_pos[u] = items
+        #         self.data_struct.set("rec.label", all_true_pos)
+        #     else:
+        #         existing = self.data_struct.get("rec.label")
+        #         for u, items in true_pos.items():
+        #             existing[u].extend(items)
+        #         self.data_struct.set("rec.label", existing)
+
+          # ------------------------------------------------------------------
+        # Store each user's ground-truth items so metrics like PSP can
+        # compute the per-user denominator (mPSP).  We build one list per
+        # *global* user ID and keep extending it batch-by-batch.
+        # ------------------------------------------------------------------
+        if self.register.need("rec.label"):
+
+            # ❶ Lazily create the master list-of-lists only once
+            if "rec.label" not in self.data_struct:
+                num_total_users = self.data_struct.get("data.num_users")
+                self.data_struct.set("rec.label", [[] for _ in range(num_total_users)])
+
+            rec_label = self.data_struct.get("rec.label")
+
+            # ❷ Map local batch rows to global user IDs
+            batch_user_id = interaction[self.config["USER_ID_FIELD"]].tolist()
+
+            # ❸ Append the positive item of *every* user in this batch
+            for local_u, item_id in zip(positive_u.tolist(), positive_i.tolist()):
+                global_u = batch_user_id[local_u]
+                rec_label[global_u].append(int(item_id))     # make sure it's plain int
+
+            # ❹ Put it back (lists are mutable, but stay explicit)
+            self.data_struct.set("rec.label", rec_label)
 
 
     def model_collect(self, model: torch.nn.Module):
@@ -211,7 +367,6 @@ class Collector(object):
             model (nn.Module): the trained recommendation model.
         """
         pass
-        # TODO:
 
     def eval_collect(self, eval_pred: torch.Tensor, data_label: torch.Tensor):
         """Collect the evaluation resource from total output and label.
@@ -223,21 +378,20 @@ class Collector(object):
         if self.register.need("rec.score"):
             self.data_struct.update_tensor("rec.score", eval_pred)
 
-        if self.register.need("data.label"):
+        if self.register.need("rec.label"):
             self.label_field = self.config["LABEL_FIELD"]
-            self.data_struct.update_tensor("data.label", data_label.to(self.device))
+            self.data_struct.update_tensor("rec.label", data_label.to(self.device))
 
     def get_data_struct(self):
         """Get all the evaluation resource that been collected.
         And reset some of outdated resource.
         """
-        for key in self.data_struct._data_dict:
-            value = self.data_struct._data_dict[key]
-            if isinstance(value, torch.Tensor):
+        for key, value in list(self.data_struct._data_dict.items()):
+            if hasattr(value, "cpu"):
                 self.data_struct._data_dict[key] = value.cpu()
 
         returned_struct = copy.deepcopy(self.data_struct)
-        for key in ["rec.topk", "rec.meanrank", "rec.score", "rec.items", "data.label"]:
+        for key in ["rec.topk", "rec.meanrank", "rec.score", "rec.items", "rec.items.internal", "rec.items.original", "data.label", "rec.label"]:
             if key in self.data_struct:
                 del self.data_struct[key]
         return returned_struct

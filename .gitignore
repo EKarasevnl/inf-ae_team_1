@@ -11,6 +11,10 @@ out/
 # # dont add RecBole dataset
 # *.item
 # *.inter
+Recbole/dataset/
+# dont add RecBole dataset
+*.item
+*.inter
 *.user
 
 # Byte-compiled / optimized / DLL files

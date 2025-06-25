@@ -2,8 +2,8 @@
 
 #SBATCH --partition=gpu_h100
 #SBATCH --gpus=1
-#SBATCH --job-name=steam_NeuMF
-#SBATCH --time=20:00:00
+#SBATCH --job-name=NeuMF_steam
+#SBATCH --time=2:00:00
 #SBATCH --output=./slurm_out/steam/NeuMF.out
 
 #exit if an error occurs
@@ -24,10 +24,10 @@ python run_recbole.py \
   --model=NeuMF \
   --dataset=steam \
   --config_files=recbole/config/steam.yaml \
-  --metrics="[\"Recall\", \"MRR\", \"NDCG\", \"Precision\", \"Hit\", \"PSP\"]" \
-  --topk="[10, 100]" \
+  --metrics="[\"Recall\", \"NDCG\", \"PSP\", \"GiniIndex\", \"MMF\", \"MMF_10c\"]" \
+  --topk="[10, 20]" \
   --valid_metric=Recall@10 \
   --stopping_step=5 \
-  --epochs=10
+  --epochs=20 \
 
 echo "Done"

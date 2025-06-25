@@ -3,12 +3,11 @@ ITEM_ID_FIELD: item_id
 LABEL_FIELD: label_id
 TIME_FIELD: timestamp
 field_separator: "\t"
+ITEM_PATH: "/home/scur2708/inf-ae_team_1/RecBole/dataset/ml-1m/ml-1m.item"
+INTER_PATH: "/home/scur2708/inf-ae_team_1/RecBole/dataset/ml-1m/ml-1m.inter"
+group_key: "category"
+category_id: "genre:token_seq"
 load_col:
   inter: [user_id, item_id, timestamp, label_id]
 
-# user_id_field: user_id
-# item_id_field: item_id
-# field_separator: "\t"
-# load_col:
-#   inter: [user_id, item_id, timestamp]
-# dataset: steam
+item_id_field: "item_id:token"  # configure it based on the .item file

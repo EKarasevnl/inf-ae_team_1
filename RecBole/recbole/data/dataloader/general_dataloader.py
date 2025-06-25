@@ -197,6 +197,7 @@ class FullSortEvalDataLoader(AbstractDataLoader):
         self.logger = getLogger()
         self.uid_field = dataset.uid_field
         self.iid_field = dataset.iid_field
+        print(f"iid_field: {self.iid_field}")
         self.is_sequential = config["MODEL_TYPE"] == ModelType.SEQUENTIAL
         if not self.is_sequential:
             user_num = dataset.user_num

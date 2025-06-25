@@ -2,9 +2,9 @@
 
 #SBATCH --partition=gpu_h100
 #SBATCH --gpus=1
-#SBATCH --job-name=POP_auc_steam
-#SBATCH --time=2:00:00
-#SBATCH --output=./slurm_out/steam/POP_auc.out
+#SBATCH --job-name=EASE_auc_ml-1m
+#SBATCH --time=20:00:00
+#SBATCH --output=./slurm_out/ml-1m/EASE_auc.out
 
 #exit if an error occurs
 set -e
@@ -21,9 +21,9 @@ cd ~/inf-ae_team_1/RecBole/
 echo "Running Value Metrics"
 
 python run_recbole.py \
-  --model=Pop \
-  --dataset=steam \
-  --config_files=recbole/config/steam.yaml \
+  --model=EASE \
+  --dataset=ml-1m \
+  --config_files=recbole/config/ml-1m.yaml \
   --metrics=AUC \
   --valid_metric=AUC \
   --eval_args="{'mode': {'valid': 'uni100', 'test': 'uni100'}}" \

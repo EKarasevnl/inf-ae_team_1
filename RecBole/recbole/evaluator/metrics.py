@@ -28,11 +28,12 @@ import numpy as np
 from collections import Counter
 from sklearn.metrics import auc as sk_auc
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+from collections import Counter
 
 from recbole.evaluator.utils import _binary_clf_curve
 from recbole.evaluator.base_metric import AbstractMetric, TopkMetric, LossMetric
 from recbole.utils import EvaluatorType
-
+import torch
 # TopK Metrics
 
 
@@ -226,180 +227,104 @@ class Precision(TopkMetric):
     def metric_info(self, pos_index):
         return pos_index.cumsum(axis=1) / np.arange(1, pos_index.shape[1] + 1)
 
-
-# Custom PSP
-# class PSP(TopkMetric):
-#     metric_type = EvaluatorType.RANKING
-#     metric_need = ["rec.topk"]  # ✅ only tensor input
-
-#     def __init__(self, config):  # <-- add dataset param!
-#         super().__init__(config)
-#         self.item_count = config["psp_item_count"]
-
-#     def used_info(self, dataobject):
-#         rec_mat = dataobject.get("rec.topk")
-#         topk_idx, pos_len_list = np.split(rec_mat, [max(self.topk)], axis=1)
-#         return (
-#             topk_idx.cpu().numpy(),
-#             pos_len_list.squeeze(-1).cpu().numpy()
-#         )
-
-#     def metric_info(self, pos_index, topk_idx):
-#         pop_weights = np.vectorize(lambda x: 1.0 / np.log1p(self.item_count.get(x, 1)))
-#         weights = pop_weights(topk_idx)
-#         weights *= pos_index
-#         return weights.cumsum(axis=1) / np.arange(1, weights.shape[1] + 1)
-
-#     def calculate_metric(self, dataobject):
-#         topk_idx, pos_len_list = self.used_info(dataobject)
-#         pos_index = topk_idx.astype(bool)
-#         result = self.metric_info(pos_index, topk_idx)
-#         return self.topk_result("psp", result)
-
-# maybe version
-# class PSP(TopkMetric):
-#     r"""
-#     PSP (Propensity Scored Precision) is a position-aware metric
-#     that weights hits by item propensities (counts).
-
-#     For each user:
-#     .. math::
-#         PSP@K(u) = \frac{
-#             \sum_{i=1}^{K} \mathbb{1}[r_i \in R(u)] \cdot \text{propensity}(r_i)
-#         }{
-#             \sum_{i=1}^{\min(|R(u)|, K)} \text{top propensities}
-#         }
-
-#     Then,
-#     .. math::
-#         PSP@K = \frac{1}{|U|} \sum_{u \in U} PSP@K(u)
-
-#     Uses `data.count_items` collected by Collector.
-#     """
-
-#     metric_type = EvaluatorType.RANKING
-#     metric_need = ["rec.topk", "rec.items", "data.count_items", "rec.label"]
-
-#     def __init__(self, config):
-#         super().__init__(config)
-
-#     def calculate_metric(self, dataobject):
-#         pos_index, pos_len = self.used_info(dataobject)
-
-#         propensities = dataobject["data.count_items"].numpy()
-#         rec_items = dataobject["rec.items"].numpy()
-
-#         result = self.metric_info(pos_index, pos_len, propensities, rec_items, dataobject)
-#         metric_dict = self.topk_result("psp", result)
-#         return metric_dict
-
-#     def metric_info(self, pos_index, pos_len, propensities, rec_items, dataobject):
-#         rec_prop = propensities[rec_items]
-
-#         # Numerator: sum of propensities for hits
-#         psp_numerator = np.cumsum(pos_index * rec_prop, axis=1)
-
-#         # Denominator: top true propensities for each user
-#         num_users, max_k = pos_index.shape
-#         denom = np.zeros((num_users, max_k))
-
-#         for u in range(num_users):
-#             true_items = dataobject["rec.label"][u]
-#             if len(true_items) > 0:
-#                 true_props = np.sort(propensities[true_items])[::-1]
-#             else:
-#                 true_props = np.array([0.0])
-
-#             top_props = np.cumsum(
-#                 np.pad(true_props, (0, max(0, max_k - len(true_props))), constant_values=0)
-#             )
-#             if len(top_props) < max_k:
-#                 top_props = np.concatenate([top_props, np.repeat(top_props[-1], max_k - len(top_props))])
-#             denom[u, :] = top_props[:max_k]
-
-#         denom[denom == 0] = 1.0
-#         return psp_numerator / denom
-
 class PSP(TopkMetric):
     r"""
-    PSP (Propensity Scored Precision) is a position-aware metric 
-    that weights hits by item propensities.
+    PSP (Propensity Scored Precision) matches the paper:
+    
+    For each user u:
+        PSP@K(u) = [ sum_{i=1}^K [ hit_i / φ(i) ] ] / [ sum_{i in I^+} 1/φ(i) ]
+    
+    where:
+        φ(i) = 1 / (1 + C * exp(-A * log(n_i + B)))
+        C = (log(N) - 1) * B^A
 
-    For each user:
-    .. math::
-        PSP@K(u) = \frac{
-            \sum_{i=1}^{K} \mathbb{1}[r_i \in R(u)] \cdot \text{propensity}(r_i)
-        }{
-            \sum_{i=1}^{\min(|R(u)|, K)} \text{top propensities}
-        }
-
-    Then,
-    .. math::
-        PSP@K = \frac{1}{|U|} \sum_{u \in U} PSP@K(u)
-
-    It uses `data.count_items` collected by the `Collector` as the propensity.
+    Uses:
+      - rec.topk: to find hits
+      - rec.items: recommended item IDs
+      - data.count_items: item interaction counts
+      - rec.label: true items for each user
     """
 
     metric_type = EvaluatorType.RANKING
-    metric_need = ["rec.topk", "rec.items", "data.count_items", "rec.label"]
+    metric_need = ["rec.topk", "rec.items", "data.count_items", "rec.label", "data.num_users"]
 
     def __init__(self, config):
         super().__init__(config)
 
+    @staticmethod
+    def _build_prop_vector(counter, rec_items, labels, A=0.55, B=1.5):
+        """
+        Return a 1-D numpy array `prop` with φ(i) for every item-ID that may
+        appear in *any* lookup (training counts, recommendations, or labels).
+        """
+        # ❶ Find the largest ID we will ever index
+        max_seen_id = max(
+            np.max(rec_items),                 # IDs in the recommended list
+            max(counter),                      # IDs that have training counts
+            max(max(l) if l else -1 for l in labels)  # IDs in ground-truth lists
+        )
+        
+        # ❷ Allocate and default to φ(i)=1.0   (safe fallback for unseen IDs)
+        prop = np.ones(max_seen_id + 1, dtype=np.float32)
+        
+        # ❸ Insert counts where we actually have them
+        counts = np.zeros_like(prop)
+        for item_id, c in counter.items():
+            counts[item_id] = c
+        
+        N = counts.sum()
+        C = (np.log(N) - 1) * B**A
+        seen_mask = counts > 0
+        prop[seen_mask] = 1.0 / (1.0 + C * np.exp(-A * np.log(counts[seen_mask] + B)))
+        return prop
+
     def calculate_metric(self, dataobject):
-        # 1️⃣ Standard: get hit indicator matrix and positive lengths
-        pos_index, pos_len = self.used_info(dataobject)
+        # 1) hits matrix and |R(u)|
+        pos_index, pos_len = self.used_info(dataobject)        # [n_users, max_k]
+        max_k   = pos_index.shape[1]
 
-        # 2️⃣ Robust: get the item count Counter and convert to dense array
-        counter = dataobject["data.count_items"]  # this is a Counter
-        num_items = max(counter.keys()) + 1
-        propensities = np.zeros(num_items, dtype=np.float32)
-        for item_id, count in counter.items():
-            propensities[item_id] = count
+        # 2) propensity values φ(i)
+        counter   = dataobject["data.count_items"]
+        A, B = 0.55, 1.5
 
-        # 3️⃣ Get the recommended item IDs at each position
-        rec_items = dataobject["rec.items"].numpy()
+        # we already have rec_items a few lines below; pull it up first
+        rec_items = dataobject["rec.items"].numpy()          # [n_users, max_k]
+        labels    = dataobject["rec.label"]                  # list[list[int]]
+        counter   = dataobject["data.count_items"]           # dict{ item_id : count }
 
-        # 4️⃣ Compute PSP per user
-        result = self.metric_info(pos_index, pos_len, propensities, rec_items, dataobject)
+        prop = PSP._build_prop_vector(counter, rec_items, labels)
 
-        # 5️⃣ Standard topk output
-        metric_dict = self.topk_result("psp", result)
-        return metric_dict
+        # 3) numerator: weighted hits, duplicates counted once
+        rec_items = dataobject["rec.items"].numpy()                # [n_users, max_k]
+        is_dup    = np.zeros_like(rec_items, dtype=bool)
+        for u in range(rec_items.shape[0]):
+            seen = set()
+            for r, itm in enumerate(rec_items[u]):
+                if itm in seen:
+                    is_dup[u, r] = True
+                else:
+                    seen.add(itm)
 
-    def metric_info(self, pos_index, pos_len, propensities, rec_items, dataobject):
-        """
-        pos_index: [num_users, max_k]  -> 1 if item at rank is correct
-        propensities: [num_items] -> count of each item
-        rec_items: [num_users, max_k] -> which item was recommended at each position
-        """
+        hits_prop          = pos_index * prop[rec_items]
+        hits_prop[is_dup]  = 0.0
+        numerator          = np.cumsum(hits_prop, axis=1)
 
-        # Numerator: propensities of recommended hits
-        rec_prop = propensities[rec_items]  # shape [num_users, max_k]
-        psp_numerator = np.cumsum(pos_index * rec_prop, axis=1)
+        # divide per-user by αu = min(|R(u)|, k)
+        scale         = np.minimum(pos_len.reshape(-1, 1),
+                                np.arange(1, max_k + 1))
+        numerator_avg = numerator / scale.astype(np.float32)
 
-        # Denominator: for each user, the sum of top-K true item propensities
-        num_users, max_k = pos_index.shape
-        denom = np.zeros((num_users, max_k))
+        # 4) denominator: Σ φ(i) over all true items
+        labels = dataobject["rec.label"]                          # list[list[int]]
+        n_users = pos_index.shape[0]
+        denom   = np.zeros((n_users, max_k), dtype=np.float32)
+        for u in range(n_users):
+            true_items = labels[u]
+            denom[u, :] = prop[true_items].sum() if true_items else np.inf
 
-        for u in range(num_users):
-            true_items = dataobject["rec.label"][u]  # list of true item IDs for user u
-            if len(true_items) > 0:
-                true_props = np.sort(propensities[true_items])[::-1]
-                top_props = np.cumsum(
-                    np.pad(true_props, (0, max(0, max_k - len(true_props))), constant_values=0)
-                )
-                if len(top_props) < max_k:
-                    top_props = np.concatenate([top_props, np.repeat(top_props[-1], max_k - len(top_props))])
-                denom[u, :] = top_props[:max_k]
-            else:
-                # If no true items, fallback to avoid divide by zero
-                denom[u, :] = 1.0
-                print("[DEBUG] Number of users with no true items:", np.sum(denom == 1.0))
-
-        # Final safe division
-        result = psp_numerator / denom
-        return result
+        # 5) per-user PSP@k and aggregate
+        psp_user_k = np.clip(numerator_avg / denom, 0.0, 1.0)
+        return self.topk_result("psp", psp_user_k)
 
 
 # CTR Metrics
@@ -862,6 +787,202 @@ class GiniIndex(AbstractMetric):
         gini_index = np.sum((2 * idx - num_items - 1) * sorted_count) / total_num
         gini_index /= num_items
         return gini_index
+
+
+
+
+class MMF(AbstractMetric):
+    """
+    Compute the Max-Min Fairness (MMF) of exposure across item groups in recommendation lists.
+
+    For each group (e.g., genre, category), we compute its exposure in recommendations relative
+    to its presence in the overall catalog. MMF evaluates fairness by computing the minimum ratio
+    of exposure share to catalog share across all groups.
+    """
+
+    metric_type = EvaluatorType.RANKING
+    smaller = False
+    metric_need = ["rec.items.original", "data.group_map", "data.group_key", "data.group_weights"]
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.topk = config["topk"]
+
+    def used_info(self, dataobject):
+        # Use original IDs directly from the collector
+        item_matrix = dataobject.get("rec.items.original").numpy()
+        group_map = dataobject.get("data.group_map")  # dict: item_id -> list of groups
+        group_key = dataobject.get("data.group_key")  # e.g., "genre"
+        # group_weights = dataobject.get("data.group_weights")
+        group_weights = None
+        return item_matrix, group_map, group_key, group_weights
+
+    def calculate_metric(self, dataobject):
+        item_matrix, group_map, group_key, group_weights = self.used_info(dataobject)
+        num_users, num_rec_items = item_matrix.shape
+
+        # Flatten top-k items per user
+        metric_dict = {}
+        for k in self.topk:
+            topk_items = item_matrix[:, :k].flatten()
+
+            mmf_score = self.compute_mmf(topk_items, group_key, group_map, group_weights)
+            metric_name = f"mmf-{group_key.lower()}@{k}"
+            metric_dict[metric_name] = round(mmf_score, self.decimal_place)
+        return metric_dict
+
+    def compute_mmf(self, recommended_items, group_key, group_map, group_weights):
+        """
+        Compute MMF from a flat list of recommended item IDs (original IDs).
+        """
+        # Step 1: Compute catalog group distribution
+        catalog_groups = Counter()
+        for raw_groups in group_map.values():
+            groups = self._parse_group_string(raw_groups)
+            catalog_groups.update(groups)
+
+        total_catalog_tags = sum(catalog_groups.values())
+        print(f"total_catalog_tags: {total_catalog_tags}")
+        print(f"catalog group values: {catalog_groups}")
+        if not group_weights:
+            group_weights = {g: c / total_catalog_tags for g, c in catalog_groups.items() if total_catalog_tags > 0}
+        
+        # Step 2: Compute exposure group distribution
+        exposure_groups = Counter()
+
+        print(f"len recommended items: {len(recommended_items)}")
+        for item_id in recommended_items:
+            # item_id is already the original ID, but may need conversion to match group_map keys
+            item_key = int(item_id) if isinstance(item_id, (float, torch.Tensor)) else item_id
+
+            if item_key in group_map:
+                groups = self._parse_group_string(group_map[item_key])
+                exposure_groups.update(groups)
+            else:
+                print(item_key)
+
+        total_exposures = sum(exposure_groups.values())
+
+        if total_exposures == 0:
+            print(f"[MMF] -> RESULT: 0.0000 (No recommendations)")
+            return 0.0
+
+        # Step 3: Compute exposure share and MMF
+        exposure_share = {g: exposure_groups[g] / total_exposures for g in group_weights}
+
+        fairness_scores = {g: (exposure_share.get(g) / group_weights[g]) if group_weights[g] > 0 else 0.0
+                           for g in group_weights}
+
+        print(f"[MMF] -> RESULTS: {fairness_scores.values()} - values")
+
+        return min(fairness_scores.values()) if fairness_scores else 0.0
+
+    def _parse_group_string(self, raw):
+        """
+        Helper to parse a string or list into group list.
+        """
+        if isinstance(raw, list):
+            return raw
+        if isinstance(raw, str):
+            return [s.strip() for s in raw.split("|") if s.strip()]
+        return [str(raw)]
+
+class MMF_10c(AbstractMetric):
+    """
+    Compute the Max-Min Fairness (MMF) of exposure across item groups in recommendation lists.
+
+    For each group (e.g., genre, category), we compute its exposure in recommendations relative
+    to its presence in the overall catalog. MMF evaluates fairness by computing the minimum ratio
+    of exposure share to catalog share across all groups.
+    """
+
+    metric_type = EvaluatorType.RANKING
+    smaller = False
+    metric_need = ["rec.items.original", "data.group_map", "data.group_key", "data.group_weights"]
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.topk = config["topk"]
+
+    def used_info(self, dataobject):
+        # Use original IDs directly from the collector
+        item_matrix = dataobject.get("rec.items.original").numpy()
+        group_map = dataobject.get("data.group_map")  # dict: item_id -> list of groups
+        group_key = dataobject.get("data.group_key")  # e.g., "genre"
+        # group_weights = dataobject.get("data.group_weights")
+        group_weights = None
+        return item_matrix, group_map, group_key, group_weights
+
+    def calculate_metric(self, dataobject):
+        item_matrix, group_map, group_key, group_weights = self.used_info(dataobject)
+        num_users, num_rec_items = item_matrix.shape
+
+        # Flatten top-k items per user
+        metric_dict = {}
+        for k in self.topk:
+            topk_items = item_matrix[:, :k].flatten()
+
+            mmf_score = self.compute_mmf(topk_items, group_key, group_map, group_weights)
+            metric_name = f"mmf_c10-{group_key.lower()}@{k}"
+            metric_dict[metric_name] = round(mmf_score, self.decimal_place)
+        return metric_dict
+
+    def compute_mmf(self, recommended_items, group_key, group_map, group_weights):
+        """
+        Compute MMF from a flat list of recommended item IDs (original IDs).
+        """
+        # Step 1: Compute catalog group distribution
+        catalog_groups = Counter()
+        for raw_groups in group_map.values():
+            groups = self._parse_group_string(raw_groups)
+            catalog_groups.update(groups)
+
+        total_catalog_tags = sum(catalog_groups.values())
+        print(f"total_catalog_tags: {total_catalog_tags}")
+        print(f"catalog group values: {catalog_groups}")
+        if not group_weights:
+            group_weights = {g: c / total_catalog_tags for g, c in catalog_groups.items() if c >= 10}
+        
+        # Step 2: Compute exposure group distribution
+        exposure_groups = Counter()
+
+        print(f"len recommended items: {len(recommended_items)}")
+        for item_id in recommended_items:
+            # item_id is already the original ID, but may need conversion to match group_map keys
+            item_key = int(item_id) if isinstance(item_id, (float, torch.Tensor)) else item_id
+
+            if item_key in group_map:
+                groups = self._parse_group_string(group_map[item_key])
+                exposure_groups.update(groups)
+            else:
+                print(f"{item_key}_c10")
+
+        total_exposures = sum(exposure_groups.values())
+
+        if total_exposures == 0:
+            print(f"[MMF] -> RESULT: 0.0000 (No recommendations)")
+            return 0.0
+
+        # Step 3: Compute exposure share and MMF
+        exposure_share = {g: exposure_groups[g] / total_exposures for g in group_weights}
+
+        fairness_scores = {g: (exposure_share.get(g) / group_weights[g]) if group_weights[g] > 0 else 0.0
+                           for g in group_weights}
+
+        print(f"[MMF] -> RESULTS: {fairness_scores.values()} - values")
+
+        return min(fairness_scores.values()) if fairness_scores else 0.0
+
+    def _parse_group_string(self, raw):
+        """
+        Helper to parse a string or list into group list.
+        """
+        if isinstance(raw, list):
+            return raw
+        if isinstance(raw, str):
+            return [s.strip() for s in raw.split("|") if s.strip()]
+        return [str(raw)]
+
 
 
 class TailPercentage(AbstractMetric):

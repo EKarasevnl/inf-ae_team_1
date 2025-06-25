@@ -17,20 +17,20 @@ module load CUDA/12.6.0
 # Set variables
 HOME_DIR="/home/$USER"
 DATASET="ml-1m"
-echo "🏡 Using home directory: $HOME_DIR"
-echo "📁 Dataset set to: $DATASET"
+echo "Using home directory: $HOME_DIR"
+echo "Dataset set to: $DATASET"
 
 # Activate conda environment
 source activate fair_diverse
-echo "✅ Environment activated!"
+echo "Environment activated!"
 
 # Change to project directory
 cd "$HOME_DIR/inf-ae_team_1/FairDiverse/fairdiverse"
-echo "📂 Changed to project directory: $(pwd)"
+echo "Changed to project directory: $(pwd)"
 
 # Run main.py with arguments
-echo "🧠 Running FairDiverse post-processing task..."
+echo "Running FairDiverse post-processing task..."
 python main.py --task recommendation --stage post-processing --dataset "$DATASET" --train_config_file postprocessing_without_fairdiverse.yaml
-echo "🎉 Post-processing completed!"
+echo "Post-processing completed!"
 
-echo "✅ Script finished successfully at $(date) ✨"
+echo "Script finished successfully at $(date) ✨"

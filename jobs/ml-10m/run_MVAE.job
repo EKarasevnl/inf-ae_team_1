@@ -2,9 +2,9 @@
 
 #SBATCH --partition=gpu_h100
 #SBATCH --gpus=1
-#SBATCH --job-name=POP_steam
-#SBATCH --time=2:00:00
-#SBATCH --output=./slurm_out/steam/POP.out
+#SBATCH --job-name=MVAE_ml-10m
+#SBATCH --time=20:00:00
+#SBATCH --output=./slurm_out/ml-10m/MVAE.out
 
 #exit if an error occurs
 set -e
@@ -21,11 +21,13 @@ cd ~/inf-ae_team_1/RecBole/
 echo "Running Ranking Metrics"
 
 python run_recbole.py \
-  --model=Pop \
-  --dataset=steam \
-  --config_files=recbole/config/steam.yaml \
+  --model=MultiVAE \
+  --dataset=ml-10m \
+  --config_files=recbole/config/ml-10m.yaml \
   --metrics="[\"Recall\", \"NDCG\", \"PSP\", \"GiniIndex\", \"MMF\", \"MMF_10c\"]" \
-  --topk="[10, 20]" \
-  --valid_metric=Recall@10 \
+  --topk="[10, 100]" \
+  --valid_metric=NDCG@100 \
+  --stopping_step=15 \
+  --epochs=150 \
 
 echo "Done"
