@@ -18,6 +18,6 @@ source activate recbole
 
 cd ~/RecBole/
 
-pip install numpy==1.23.5 --force-reinstall
+# pip install numpy==1.23.5 --force-reinstall
 
 python run_recbole.py

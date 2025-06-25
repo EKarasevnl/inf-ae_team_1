@@ -16,7 +16,7 @@ module load CUDA/12.6.0
 
 source activate recbole
 
-pip install pandas h5py
+# pip install pandas h5py
 
 cd ~/
 

@@ -6,8 +6,8 @@
 #SBATCH --time=00:30:00
 #SBATCH --output=./slurm_out/install_fairdiv_env.out
 
-# Exit if an error occurs
-# set -e
+USER=$(whoami)
+
 echo "Job started at $(date)"
 
 module purge
@@ -25,7 +25,7 @@ conda create -n fair_diverse python=3.9 -y
 source activate fair_diverse
 
 # Change to the project directory
-cd /home/scur2725/inf-ae_team_1/FairDiverse
+cd /home/$USER/inf-ae_team_1/FairDiverse
 
 echo "Installing package dependencies..."
 # Install project-specific requirements

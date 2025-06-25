@@ -21,7 +21,6 @@ class Dataset:
             hyper_params["item_id"],
             hyper_params["category_id"],
             categories_to_retain=hyper_params.get("categories_to_retain", None),
-            # inter_item_col_name=hyper_params.get("inter_item_col_name", "product_id:token"),
             inter_item_col_name=hyper_params.get("inter_item_col_name", hyper_params.get("item_id", "item_id:token")),
             use_first_category=hyper_params.get("use_first_category", False),
             min_category_support=hyper_params.get("min_category_support", 0),
@@ -405,7 +404,7 @@ def load_raw_dataset(
 if __name__ == "__main__":
     hyper_params = {
         "dataset": "steam", 
-        "item_id": "id:token",                   # Item ID column in the .item file
+        "item_id": "id:token",                     # Item ID column in the .item file
         "inter_item_col_name": "product_id:token", # Item ID column in the .inter file
         "category_id": "developer:token",
         "categories_to_retain": [
@@ -426,149 +425,3 @@ if __name__ == "__main__":
     print("\nDataset object created successfully.")
     print(f"Number of users in final dataset: {data.hyper_params['num_users']}")
     print(f"Number of items in final dataset: {data.hyper_params['num_items']}")
-
-
-def load_raw_dataset_v2(
-    dataset,
-    item_id,
-    category_id,
-    data_path=None,
-    index_path=None,
-    item_path=None,
-    categories_to_retain=None,
-    inter_item_col_name=None,
-):
-    # --- 1. Load all raw data ---
-    if data_path is None or index_path is None:
-        data_path, index_path = [f"data/{dataset}/total_data.hdf5", f"data/{dataset}/index.npz"]
-    print(f"Using default paths: data_path={data_path}, index_path={index_path}")
-
-    print(f"Loading interaction data from {data_path}")
-    with h5py.File(data_path, "r") as f:
-        data = np.array(list(zip(f["user"][:], f["item"][:], f["rating"][:])))
-    print(f"Loading index from {index_path}")
-    index = np.array(np.load(index_path)["data"], dtype=np.int32)
-    
-    print("Loading item metadata...")
-    if item_path is None:
-        item_path = f"data/{dataset}/{dataset}.item"
-    try:
-        item_df = pd.read_csv(item_path, delimiter="\t", header=0, engine="python", encoding="latin-1")
-    except pd.errors.ParserError:
-        item_df = pd.read_csv(item_path, delimiter="\t", header=0, engine="python", encoding="utf-8", on_bad_lines="warn")
-
-    if category_id not in item_df.columns:
-        item_df[category_id] = "DummyCategory"
-
-    print("\n[CLEANING] Sanitizing item metadata...")
-    item_df[item_id] = pd.to_numeric(item_df[item_id], errors='coerce')
-    
-    # --- 2. Remove rows with NaN in item_id or category_id ---
-    original_rows = len(item_df)
-    item_df.dropna(subset=[item_id, category_id], inplace=True)
-    
-    # convert the ID column to integer
-    item_df[item_id] = item_df[item_id].astype(int)
-    print(f"[CLEANING] Removed {original_rows - len(item_df)} rows with invalid data. Clean rows: {len(item_df)}.")
-
-    # --- 3. Create the Master Category Map ---
-    print("\nCreating a comprehensive original_id -> category map (pre-filtering)...")
-    original_id_to_category_map = dict(zip(item_df[item_id], item_df[category_id]))
-    print(f"-> Created master map with {len(original_id_to_category_map)} entries.")
-
-    # --- 4. Filter the item metadata based on categories_to_retain ---
-    if categories_to_retain and isinstance(categories_to_retain, list):
-        print(f"\n[FILTERING] Applying filter to retain {len(categories_to_retain)} categories.")
-        item_df = item_df[item_df[category_id].isin(set(categories_to_retain))].copy()
-        print(f"[FILTERING] Item catalog filtered down to {len(item_df)} rows.")
-
-    # --- 5. Filter the interaction arrays based on the now-clean and filtered item_df ---
-    valid_original_item_ids = set(item_df[item_id].tolist())
-    print(f"\n[INTERACTION FILTER] Applying filter to HDF5 data based on {len(valid_original_item_ids)} valid items.")
-    interaction_mask = np.isin(data[:, 1], list(valid_original_item_ids))
-    data = data[interaction_mask]
-    index = index[interaction_mask]
-    print(f"[INTERACTION FILTER] Interaction data filtered to {data.shape[0]} rows.")
-
-    # --- 6. Remap users and items using the original, explicit scanning method ---
-    def remap(d, idx):
-        print("\nRemapping user and item IDs based on filtered interactions")
-        valid_users, valid_items = set(), set()
-        print("Identifying valid users and items from the filtered set")
-        for at, (u, i, r) in enumerate(tqdm(d, desc="Scanning for valid entries")):
-            if idx[at] != -1:
-                valid_users.add(u)
-                valid_items.add(i)
-        print(f"Found {len(valid_users)} valid users and {len(valid_items)} valid items post-filtering.")
-        user_map = {original_id: new_id for new_id, original_id in enumerate(sorted(list(valid_users)))}
-        item_map = {original_id: new_id for new_id, original_id in enumerate(sorted(list(valid_items)))}
-        return user_map, item_map
-
-    user_map, item_map = remap(data, index)
-    
-    # --- 7. Create final data structures ---
-    print("\nCreating final data structures...")
-    
-    item_map_to_category = {}
-    for original_id, remapped_id in item_map.items():
-        category = original_id_to_category_map.get(original_id)
-        if category is not None:
-            item_map_to_category[remapped_id] = category
-            
-    new_data, new_index = [], []
-    for at, (u, i, r) in enumerate(tqdm(data, desc="Remapping data")):
-        if index[at] != -1: # and u in user_map and i in item_map:
-            new_data.append([user_map[u], item_map[i], 1.0])
-            new_index.append(index[at])
-    data = np.array(new_data, dtype=np.int32)
-    index = np.array(new_index, dtype=np.int32)
-
-    def select(d, idx, val): return d[np.where(idx == val)[0]]
-    
-    ret = {
-        "item_map": item_map, "item_map_to_category": item_map_to_category,
-        "train": select(data, index, 0), "val": select(data, index, 1), "test": select(data, index, 2),
-    }
-    
-    num_users, num_items = len(user_map), len(item_map)
-    print(f"Split sizes - Train: {len(ret['train'])}, Val: {len(ret['val'])}, Test: {len(ret['test'])}")
-    del data, index
-    gc.collect()
-
-    # --- 8. Build user history, sparse matrices, and negatives ---
-    def make_user_history(arr):
-        user_history = [set() for _ in range(num_users)]
-        for u, i, r in arr:
-            if u < num_users and i < num_items:
-                user_history[u].add(i)
-        return user_history
-    
-    ret["train_positive_set"] = make_user_history(ret["train"])
-    ret["val_positive_set"] = make_user_history(ret["val"])
-    ret["test_positive_set"] = make_user_history(ret["test"])
-    ret["train_matrix"] = csr_matrix((np.ones(len(ret["train"])), (ret["train"][:, 0], ret["train"][:, 1])), shape=(num_users, num_items))
-    ret["val_matrix"] = csr_matrix((np.ones(len(ret["val"])), (ret["val"][:, 0], ret["val"][:, 1])), shape=(num_users, num_items))
-
-    print("Generating negative samples for evaluation...")
-    negatives_list = [] # Use a temporary standard list
-    all_items = set(range(num_items))
-
-    for u in tqdm(range(num_users), desc="Generating negatives"):
-        positive_items = ret["train_positive_set"][u].union(ret["test_positive_set"][u])
-        possible_negatives = list(all_items - positive_items)
-        
-        if len(possible_negatives) > 0:
-            num_negatives = min(len(possible_negatives), 50)
-            sampled_negatives = np.random.choice(possible_negatives, num_negatives, replace=False)
-            negatives_list.append(sampled_negatives)
-        else:
-            negatives_list.append(np.array([], dtype=np.int32))
-
-    ret["negatives"] = np.array(negatives_list)
-    print(f"Generated negative samples.")
-
-    ret.update({"num_users": num_users, "num_items": num_items, "num_interactions": len(ret["train"])})
-    print("\nDataset loading complete. Summary:")
-    print(f"# users: {num_users}, # items: {num_items}, # interactions: {len(ret['train'])}")
-    
-    return ret
