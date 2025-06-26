@@ -2,12 +2,19 @@ import jax
 import numpy as np
 import jax.numpy as jnp
 from numba import jit, float64
+from scipy.sparse import csr_matrix, save_npz
 
 import numpy as np
+import os
+import json
+import yaml
 
 from hyper_params import hyper_params
+from metrics import compute_mmf
 
-USE_GINI = hyper_params["use_gini"]
+USE_GINI = hyper_params.get("use_gini", False)
+USE_MMF = hyper_params.get("use_mmf", False)
+POST_PROCESS = hyper_params.get("post_process", False)
 
 
 class GiniCoefficient:
@@ -62,8 +69,9 @@ def evaluate(
     data,
     item_propensity,
     train_x,
-    topk=[10, 100],
+    topk=[10, 100], #, 1000],
     test_set_eval=False,
+    item_group_weights=None,
 ):
     print(
         f"\n[EVALUATE] Starting evaluation with topk={topk}, test_set_eval={test_set_eval}"
@@ -106,7 +114,11 @@ def evaluate(
 
     user_recommendations = {}
 
-    bsz = 20_000  # These many users
+    # --- NEW: Create a placeholder for the full scores matrix ---
+    if POST_PROCESS:
+        full_ranking_scores = np.zeros((hyper_params["num_users"], hyper_params["num_items"]), dtype=np.float32)
+
+    bsz = 140_000  # These many users
     print(f"[EVALUATE] Processing users in batches of {bsz}")
 
     for i in range(0, hyper_params["num_users"], bsz):
@@ -117,11 +129,20 @@ def evaluate(
 
         print(f"[EVALUATE] Running forward pass for batch {i} to {batch_end-1}")
         temp_preds = kernelized_rr_forward(
-            train_x, eval_context[i:batch_end].todense(), reg=hyper_params["lamda"]
+            train_x,
+            eval_context[i:batch_end].todense(),
+            reg=hyper_params["lamda"],
+            gini_reg=hyper_params.get("gini_reg", 0.0), # GINI regularization
+            mmf_reg=hyper_params.get("mmf_reg", 0.0),   # MMF regularization
+            item_group_weights=item_group_weights       # MMF group weights
         )
         print(
             f"[EVALUATE] Forward pass complete, prediction shape: {np.array(temp_preds).shape}"
         )
+
+        # --- NEW: Store the batch predictions in the full matrix ---
+        if POST_PROCESS:
+            full_ranking_scores[i:batch_end] = np.array(temp_preds)
 
         print(f"[EVALUATE] Evaluating batch {i} to {batch_end-1}")
         metrics, temp_preds, temp_y, user_recommendations_batch = evaluate_batch(
@@ -161,6 +182,10 @@ def evaluate(
         print(
             "[EVALUATE] Warning: NaN values detected in y_binary or preds, skipping AUC calculation"
         )
+        # count how many NaN values are in y_binary and preds
+        print(
+            f"[EVALUATE] NaN count in y_binary: {np.isnan(y_binary).sum()}, preds: {np.isnan(preds).sum()}"
+        )
 
     for kind in ["HR", "NDCG", "PSP"]:
         for k in topk:
@@ -181,12 +206,128 @@ def evaluate(
                 user_recommendations[k], key="category"
             )
             print(f"[EVALUATE] GINI@{k}: {metrics['GINI@{}'.format(k)]}")
+    #### MMF Metrics ####
+    if USE_MMF:
+        item_map_to_category = data.data.get("item_map_to_category")
+        print("[EVALUATE] Computing MMF metrics for categories.")
+        if not user_recommendations:
+            print("[EVALUATE] SKIPPING MMF: Full recommendation lists were not collected.")
+            print("[EVALUATE] HINT: To compute MMF, 'USE_GINI' must be True so that recommendations are collected.")
+        else:
+            mmf_metrics = compute_mmf(
+                user_recommendations=user_recommendations,
+                topk=topk,
+                group_key='category',
+                group_map=item_map_to_category
+            )
+            metrics.update(mmf_metrics)
+    ## End of MMF Metrics ####
 
     metrics["num_users"] = int(train_x.shape[0])
     metrics["num_interactions"] = int(jnp.count_nonzero(train_x.astype(np.int8)))
     print(
         f"[EVALUATE] Final metrics: num_users={metrics['num_users']}, num_interactions={metrics['num_interactions']}"
     )
+
+
+    # POST PROCESSING FOR FAIR DIVERSE (make it compatible with FairDiverse)
+    if POST_PROCESS:
+        print("\n[POST-PROCESS] Starting post-processing and file generation...")
+        dataset_name = hyper_params.get("dataset", "unknown_dataset")
+
+        # Step 1: Create directories
+        log_dir = f"FairDiverse/fairdiverse/recommendation/log/{dataset_name}"
+        data_dir = f"FairDiverse/fairdiverse/recommendation/processed_dataset/{dataset_name}"
+        os.makedirs(log_dir, exist_ok=True)
+        os.makedirs(data_dir, exist_ok=True)
+        print(f"[POST-PROCESS] Created directories: {log_dir} and {data_dir}")
+        print("[POST-PROCESS] Establishing canonical item count and mappings...")
+        item_map_from_data = data.data.get("item_map_to_category", {})
+        if item_map_from_data:
+            sample_key = next(iter(item_map_from_data.keys()))
+            print(f"[POST-PROCESS] Diagnostic: A sample key from item_map_to_category is of type '{type(sample_key)}' (e.g., {sample_key})")
+        else:
+            print("[POST-PROCESS] WARNING: The 'item_map_to_category' dictionary is empty or missing.")
+
+
+        num_model_items = hyper_params["num_items"]
+        if num_model_items != full_ranking_scores.shape[1]:
+            print(f"[POST-PROCESS] CRITICAL WARNING: Mismatch between hyper_params['num_items'] ({num_model_items}) "
+                  f"and score matrix width ({full_ranking_scores.shape[1]}). Using matrix width as final authority.")
+            num_model_items = full_ranking_scores.shape[1]
+        
+        print(f"[POST-PROCESS] Authoritative item count set to: {num_model_items}")
+
+        original_to_new_dense_id_map = {i + 1: i for i in range(num_model_items)}
+        item_remapping_path = os.path.join(data_dir, "item_id_remapping.json")
+        with open(item_remapping_path, 'w') as f:
+            json.dump(original_to_new_dense_id_map, f, indent=2)
+        print(f"[POST-PROCESS] Saved original-to-new item ID map to: {item_remapping_path}")
+        print("[POST-PROCESS] Saving ranking scores matrix...")
+        ranking_scores_path = os.path.join(log_dir, "ranking_scores.npz")
+        np.savez_compressed(ranking_scores_path, scores=full_ranking_scores)
+        print(f"[POST-PROCESS] Saved ranking scores matrix (shape: {full_ranking_scores.shape}) to: {ranking_scores_path}")
+        print("[POST-PROCESS] Preparing and remapping category mapping files...")
+
+        sample_value = next(iter(item_map_from_data.values()), None)
+        category_name_to_id_map = None
+        if isinstance(sample_value, str):
+            print("[POST-PROCESS] Found string categories. Creating new integer category IDs.")
+            all_categories = sorted(list(set(item_map_from_data.values())))
+            category_name_to_id_map = {name: i for i, name in enumerate(all_categories)}
+            category_mapping_path = os.path.join(data_dir, "category_id_mapping.json")
+            with open(category_mapping_path, 'w') as f: json.dump(category_name_to_id_map, f, indent=2)
+            print(f"[POST-PROCESS] Saved category name-to-ID map to: {category_mapping_path}")
+
+        final_remapped_iid2pid = {}
+        for dense_id in range(num_model_items):
+            original_id = dense_id + 1
+            category_value = item_map_from_data.get(original_id)
+            if category_value is None:
+                category_value = item_map_from_data.get(str(original_id))
+
+            final_category_id = -1 
+            if category_value is not None:
+                if category_name_to_id_map:
+                    final_category_id = category_name_to_id_map.get(category_value, -1)
+                elif isinstance(category_value, (int, float)):
+                    final_category_id = int(category_value)
+
+            final_remapped_iid2pid[str(dense_id)] = final_category_id
+
+        iid2pid_path = os.path.join(data_dir, "iid2pid.json")
+        with open(iid2pid_path, 'w') as f: json.dump(final_remapped_iid2pid, f)
+        print(f"[POST-PROCESS] Saved final remapped item-to-group-ID map to: {iid2pid_path}")
+
+        # --- Create Config Files ---
+        print("[POST-PROCESS] Creating final configuration files...")
+        num_users = hyper_params["num_users"]
+        num_items = num_model_items 
+        num_groups = len(set(val for val in final_remapped_iid2pid.values() if val != -1))
+        
+        # Add a check for num_groups if all items were -1
+        if num_groups == 0 and final_remapped_iid2pid:
+            print("[POST-PROCESS] WARNING: No valid group IDs found for any item. group_num will be 0.")
+
+        config_data = { 'user_num': num_users, 'item_num': num_items, 'group_num': num_groups }
+
+        process_config_path = os.path.join(data_dir, "process_config.yaml")
+        with open(process_config_path, "w") as file:
+            yaml.dump(config_data, file, sort_keys=False)
+        print(f"[POST-PROCESS] Saved data processing config to: {process_config_path}")
+
+        postprocessing_model_name = "CPFair"
+        config_model = {
+            "ranking_store_path": f"{dataset_name}", "model": f"{postprocessing_model_name}",
+            "fair-rank": True, "log_name": f"{postprocessing_model_name}_without_fairdiverse_{dataset_name}",
+            "topk": [5, 10, 20], "fairness_metrics": ["MinMaxRatio", "MMF", "GINI", "Entropy"],
+            "fairness_type": "Exposure"
+        }
+        model_config_path = f"FairDiverse/fairdiverse/recommendation/postprocessing_without_fairdiverse.yaml"
+        with open(model_config_path, "w") as file:
+            yaml.dump(config_model, file, sort_keys=False)
+        print(f"[POST-PROCESS] Saved post-processing model config to: {model_config_path}")
+        print("[POST-PROCESS] Post-processing complete.")
 
     return metrics
 
@@ -247,15 +388,21 @@ def evaluate_batch(
         hr_sum, ndcg_sum, psp_sum = 0, 0, 0
 
         for b in range(len(logits)):
-            if USE_GINI:
+            
+            if USE_GINI or USE_MMF or POST_PROCESS:
                 # Update item exposures for this batch at this k
                 for item_idx in indices[b][:k]:
-                    user_recommendations[k].append(
-                        {
-                            "id": item_idx + 1,
-                            "category": data.data["item_map_to_category"][item_idx + 1],
-                        }
-                    )
+
+                    try:
+                        
+                        user_recommendations[k].append(
+                            {
+                                "id": item_idx + 1,
+                                "category": data.data["item_map_to_category"][item_idx + 1],
+                            }
+                        )
+                    except:
+                        pass
 
             num_pos = float(len(test_positive_set[b]))
             if num_pos == 0:
@@ -300,11 +447,12 @@ def evaluate_batch(
             print(
                 f"[EVAL_BATCH] Collected {len(user_recommendations[k])} recommendations for k={k}"
             )
-
+        
     print(
         f"[EVAL_BATCH] Batch evaluation complete, returning {len(temp_preds)} predictions"
     )
-    return metrics, temp_preds, temp_y, user_recommendations if USE_GINI else {}
+    # return metrics, temp_preds, temp_y, user_recommendations if USE_GINI else {}
+    return metrics, temp_preds, temp_y, user_recommendations if (USE_GINI or USE_MMF or POST_PROCESS) else {}
 
 
 @jit(float64(float64[:], float64[:]))

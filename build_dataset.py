@@ -32,7 +32,7 @@ def _write_hdf5(users, items, ratings, out_path):
         f.create_dataset("user",   data=users,   dtype="i4", compression="gzip")
         f.create_dataset("item",   data=items,   dtype="i4", compression="gzip")
         f.create_dataset("rating", data=ratings, dtype="f",  compression="gzip")
-    print(f"✅  HDF5   → {out_path}  ({len(users):,} rows)")
+    print(f"[LOG]  HDF5   → {out_path}  ({len(users):,} rows)")
 
 def _write_inter(users, items, ratings, out_path):
     pd.DataFrame({
@@ -40,7 +40,7 @@ def _write_inter(users, items, ratings, out_path):
         "item_id:token": items,
         "rating:float":  ratings
     }).to_csv(out_path, sep="\t", index=False)
-    print(f"✅  .inter → {out_path}  ({len(users):,} rows)")
+    print(f"[LOG]  .inter → {out_path}  ({len(users):,} rows)")
 
 def _split_indices(user_hist):
     """labels per interaction: 0 train | 1 val | 2 test | -1 skip"""
@@ -61,7 +61,7 @@ def _split_indices(user_hist):
 def _save_index(idx, out_path):
     out_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out_path, data=idx)
-    print(f"✅  index  → {out_path}  ({len(idx):,} labels)")
+    print(f"[LOG]  index  → {out_path}  ({len(idx):,} labels)")
 
 # --------------------------------------------------------------------------- #
 # dataset-specific loaders
@@ -132,14 +132,14 @@ if __name__ == "__main__":
         pd.DataFrame({"id:token": np.unique(items)}
                     ).to_csv(out_root / f"{args.dataset}.item",
                             sep="\t", index=False)
-        print("✅  .item  → minimal file written (id:token).")
+        print("[LOG]  .item  → minimal file written (id:token).")
     else:
         # keep metadata but rename the ID column back to id:token
         item_df.rename(columns={"item_id:token": "id:token"}, inplace=True)
         cols = ["id:token"] + [c for c in item_df.columns if c != "id:token"]
         item_df[cols].to_csv(out_root / f"{args.dataset}.item",
                             sep="\t", index=False)
-        print(f"✅  .item  → metadata file written ({len(item_df):,} items, id:token)")
+        print(f"[LOG]  .item  → metadata file written ({len(item_df):,} items, id:token)")
 
     # build index.npz
     hist = [[] for _ in range(users.max()+1)]
@@ -147,4 +147,4 @@ if __name__ == "__main__":
         hist[u].append((i,r))
     _save_index(_split_indices(hist), out_root / "index.npz")
 
-    print("\n🎉  Done – all files perfectly aligned.\n")
+    print("\nDone – all files perfectly aligned.\n")

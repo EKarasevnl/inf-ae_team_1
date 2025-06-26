@@ -1,4 +1,9 @@
 results/
+slurm_out/
+slurm_out_new/
+log_tensorboard/
+saved/
+data/
 Recbole/dataset/
 # dont add RecBole dataset
 *.item

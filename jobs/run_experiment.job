@@ -1,13 +1,14 @@
 #!/bin/bash
 
-#SBATCH --partition=gpu_a100
+#SBATCH --partition=gpu_h100
 #SBATCH --gpus=1
-#SBATCH --job-name=run_experiment
-#SBATCH --time=0:59:00
-#SBATCH --output=./slurm_out/run_experiment_1.out
+#SBATCH --job-name=run_batched
+#SBATCH --mem=180G
+#SBATCH --time=00:10:00
+#SBATCH --output=./slurm_out/run_batched_%j.out
 
 #exit if an error occurs
-set -e
+# set -e
 
 module purge
 module load 2024
@@ -16,6 +17,6 @@ module load CUDA/12.6.0
 
 source activate inf-ae
 
-cd ~/inf-ae_team_1/
+cd ~/inf-ae_team_1
 
-CUDA_VISIBLE_DEVICES=0 python main.py
+python main.py
