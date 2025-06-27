@@ -16,7 +16,6 @@ Autoencoder for Recommender Systems**. The repository is the altered version pro
 ├── Readme.md                 # Main project README
 ├── Readme_original_paper.md  # README from the original paper repo
 ├── RecBole/                  # RecBole baseline code and configs
-├── baseline_runs.job         # Job script for baseline runs
 ├── build_dataset.py          # Script for building datasets
 ├── data/                     # Raw and processed datasets
 ├── data.py                   # Data loading and processing
