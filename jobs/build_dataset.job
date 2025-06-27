@@ -22,8 +22,12 @@ cd ~/
 
 echo "Converting steam from hdf5 to recbole format"
 
+# python inf-ae_team_1/build_dataset.py steam \
+#     --in_dir ~/RecDatasets/conversion_tools/output_data \
+#     --out_dir ~/dataset/steam \
+
 python inf-ae_team_1/build_dataset.py steam \
-    --in_dir ~/RecDatasets/conversion_tools/output_data \
-    --out_dir ~/dataset/steam \
+    --in_dir ~/inf-ae_team_1/RecBole/dataset/ \
+    --out_dir ~/inf-ae_team_1/RecBole/dataset/ \
 
 echo "Done"

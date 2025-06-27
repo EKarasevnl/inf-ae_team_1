@@ -23,8 +23,6 @@ cd ~/inf-ae_team_1/
 conda install -c aibox recbole
 pip install recbole
 
-cd ~/
-
 git clone https://github.com/RUCAIBox/RecBole.git && cd RecBole
 
 pip install -e . --verbose
