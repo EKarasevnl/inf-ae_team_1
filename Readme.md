@@ -51,9 +51,73 @@ This repository builds on the original ∞-AE codebase with several improvements
 
 ### 4. RecBole Baselines with Fairness Metrics
 - **What:** RecBole baseline scripts are updated to also compute GINI and MMF metrics for fair comparison.
-- **How:**
-  - **First, build the dataset:** Run `jobs/build_dataset.job` to convert your processed hdf5/npz data into `.item` and `.inter` files.
-  - **Then, run experiments:** Use the job scripts in `jobs/{dataset}` (ml-1m, ml-10m, steam) and `jobs/experiments/` to run RecBole baselines and experiments with the new metrics. For standard RecBole runs, you can also use `jobs/run_recbole.job`.
+- **How:** Inside inf-ae_team_1 directory follow these steps:
+    1. **Install RecDatasets**
+
+  This will clone the [RecDatasets](https://github.com/RUCAIBox/RecDatasets) repository and install the necessary conversion tools.
+
+  ```bash
+  sbatch jobs/install_database.job
+  ```
+
+  2. **Install RecBole and Create the Python Environment**
+
+  This will create the `recbole` Conda environment and install RecBole using both Conda and pip.
+
+  ```bash
+  sbatch jobs/install_recbole.job
+  ```
+
+  3. **Download and Convert the Dataset (e.g., Steam)**
+
+  This script downloads and processes the Steam dataset into RecBole-compatible format.
+
+  ```bash
+  sbatch jobs/steam/download_steam.job
+  ```
+
+  It will:
+  - Download raw JSON files
+  - Convert them using `conversion_tools/run.py`
+  - Save the converted data to `output_data/steam/steam.item` and `output_data/steam/steam.inter`
+
+  4. **Move the Processed Dataset into the RecBole Directory**
+
+  RecBole expects datasets to be in the `RecBole/dataset/{dataset_name}` directory. After downloading and converting the dataset, move it:
+
+  ```bash
+  mkdir -p RecBole/dataset/steam
+  cp ~/RecDatasets/conversion_tools/output_data/steam/steam.item RecBole/dataset/steam/steam.item
+  cp ~/RecDatasets/conversion_tools/output_data/steam/steam.inter RecBole/dataset/steam/steam.inter
+  ```
+
+  5. **Preprocess Dataset for Fairness Experiments**
+
+  Before running any RecBole baseline or fairness experiments, preprocess the dataset:
+
+  ```bash
+  sbatch jobs/build_dataset.job
+  ```
+
+  This script prepares the final `.hdf5` or `.npz` files needed for running the ∞-AE model or RecBole baselines with fairness metrics.
+
+  6. **Run the Full Experiment Pipeline**
+
+  Once everything is set up, run the full training and evaluation pipeline for Steam:
+
+  ```bash
+  ./jobs/run_all_steam.sh
+  ```
+
+  7. **Generate Overleaf-Compatible Results Table**
+
+  To create a table summarizing your results in a format ready to paste into Overleaf:
+
+  ```bash
+  sbatch jobs/experiments/mk_tb_steam.job
+  ```
+
+  This runs a script that parses experiment outputs and writes a summary to `slurm_out/tables/steam_table.txt`.
 
 ### 5. In-Processing Regularization for Fairness/Diversity
 - **What:** The model now supports in-processing regularization for fairness/diversity via `mmf_reg` and `gini_reg`.
